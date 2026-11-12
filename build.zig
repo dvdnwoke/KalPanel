@@ -4,12 +4,18 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const sqlite_dep = b.dependency("sqlite", .{});
+    const sqlite_mod = sqlite_dep.module("sqlite");
+
     const exe = b.addExecutable(.{
         .name = "kalpanel",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "sqlite", .module = sqlite_mod },
+            },
         }),
     });
 
@@ -17,7 +23,6 @@ pub fn build(b: *std.Build) void {
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-
     run_cmd.addPassthruArgs();
 
     const run_step = b.step("run", "Run the KalPanel CLI");
@@ -28,6 +33,9 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/tests.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "sqlite", .module = sqlite_mod },
+            },
         }),
     });
 

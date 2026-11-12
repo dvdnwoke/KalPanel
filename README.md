@@ -14,6 +14,6 @@ zig build test
 
 ## Status
 
-Dependencies module complete (feature-gated checks). Database folder prepared for zig-sqlite.
+Dependencies, SQLite user database, and Ubuntu account creation are in place.
 
 All design notes and module restrictions live in the KalPanel Google Doc.
