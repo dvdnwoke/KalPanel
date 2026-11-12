@@ -426,3 +426,42 @@ test "lets encrypt serves the site on port 443" {
     const still = try layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/example.com.conf", &conf_buf);
     try std.testing.expect(std.mem.indexOf(u8, still, "listen 443 ssl;") != null);
 }
+
+test "rejects unsafe names, missing features, and duplicate domains" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const root = "/tmp/kalpanel-reject-test";
+    std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, root);
+    defer std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    const db_path = root ++ "/kalpanel.sqlite";
+    var out_buf: [512]u8 = undefined;
+
+    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--php", "--email" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, null, &out_buf);
+
+    const bad_domains = [_][]const u8{ "Example.COM", "-bad.com", "bad-.com", "a..b.com", "../etc" };
+    for (bad_domains) |name| {
+        try std.testing.expectError(error.InvalidDomain, exec(io, root, db_path, &.{ "domain", "create", "admin", name, "--runtime", "php" }, null, null, &out_buf));
+    }
+    try std.testing.expectError(error.DomainExists, exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, null, &out_buf));
+    try std.testing.expectError(error.InvalidAddress, exec(io, root, db_path, &.{ "email", "create", "..@example.com" }, null, null, &out_buf));
+    try std.testing.expectError(error.InvalidAddress, exec(io, root, db_path, &.{ "email", "create", "a..b@example.com" }, null, null, &out_buf));
+
+    _ = try exec(io, root, db_path, &.{ "user", "create", "plain", "--role", "user", "--actor", "admin", "--domain" }, null, null, &out_buf);
+    try std.testing.expectError(error.FeatureNotEnabled, exec(io, root, db_path, &.{ "domain", "create", "plain", "plain.example", "--runtime", "php" }, null, null, &out_buf));
+    try std.testing.expectError(error.FeatureNotEnabled, exec(io, root, db_path, &.{ "domain", "create", "plain", "plain.example", "--runtime", "node" }, null, null, &out_buf));
+
+    _ = try exec(io, root, db_path, &.{ "user", "create", "nodes", "--role", "user", "--actor", "admin", "--domain", "--node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "nodes", "one.example", "--runtime", "node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "nodes", "two.example", "--runtime", "node" }, null, null, &out_buf);
+    var unit_buf: [1024]u8 = undefined;
+    const first = try layout_mod.readFile(io, root ++ "/etc/systemd/system/kalpanel-one.example.service", &unit_buf);
+    try std.testing.expect(std.mem.indexOf(u8, first, "Environment=PORT=20000") != null);
+    const second = try layout_mod.readFile(io, root ++ "/etc/systemd/system/kalpanel-two.example.service", &unit_buf);
+    try std.testing.expect(std.mem.indexOf(u8, second, "Environment=PORT=20001") != null);
+
+    _ = try exec(io, root, db_path, &.{ "user", "suspend", "admin" }, null, null, &out_buf);
+    try std.testing.expectError(error.UserSuspended, exec(io, root, db_path, &.{ "user", "create", "later", "--role", "user", "--actor", "admin" }, null, null, &out_buf));
+}

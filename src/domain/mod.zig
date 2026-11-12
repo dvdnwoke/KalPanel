@@ -12,22 +12,24 @@ pub const Runtime = enum { php, node };
 
 pub fn validateDomain(name: []const u8) !void {
     if (name.len < 3 or name.len > 253) return error.InvalidDomain;
-    if (name[0] == '.' or name[name.len - 1] == '.') return error.InvalidDomain;
     var label_len: usize = 0;
     var dots: usize = 0;
+    var prev: u8 = 0;
     for (name) |c| {
         if (c == '.') {
-            if (label_len == 0) return error.InvalidDomain;
+            if (label_len == 0 or prev == '-') return error.InvalidDomain;
             dots += 1;
             label_len = 0;
+            prev = c;
             continue;
         }
         const ok = (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '-';
-        if (!ok) return error.InvalidDomain;
+        if (!ok or (c == '-' and label_len == 0)) return error.InvalidDomain;
         label_len += 1;
         if (label_len > 63) return error.InvalidDomain;
+        prev = c;
     }
-    if (label_len == 0 or dots == 0) return error.InvalidDomain;
+    if (label_len == 0 or dots == 0 or prev == '-') return error.InvalidDomain;
 }
 
 pub fn parseRuntime(name: []const u8) ?Runtime {
@@ -226,11 +228,11 @@ fn nextNodePort(db: *Db) !i64 {
     const query = try db.raw.prepare(
         struct {},
         struct { n: i64 },
-        "SELECT COUNT(*) AS n FROM domains WHERE runtime = 'node'",
+        "SELECT COALESCE(MAX(port), 19999) AS n FROM domains WHERE runtime = 'node'",
     );
     defer query.finalize();
     try query.bind(.{});
     defer query.reset();
     const row = (try query.step()) orelse return error.Database;
-    return 20000 + row.n;
+    return row.n + 1;
 }

@@ -15,7 +15,7 @@ pub const Apt = struct {
 /// Packages that are already on the system are not recorded, so uninstall will not remove them.
 pub fn sync(db: *Db, io: std.Io, used: FeatureSet, apt: Apt) !void {
     var pkgs: [8]manager.Package = undefined;
-    const n = manager.collectPackages(used, &pkgs);
+    const n = try manager.collectPackages(used, &pkgs);
     var missing: [8][]const u8 = undefined;
     var missing_features: [8][]const u8 = undefined;
     var m: usize = 0;

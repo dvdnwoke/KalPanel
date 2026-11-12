@@ -140,3 +140,29 @@ test "creates admin reseller and user with home features" {
         .actor = .reseller,
     }, &dup_home));
 }
+
+test "a suspended user does not keep features in use" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var db = try openTestDb();
+    defer db.close();
+
+    const root = "/tmp/kalpanel-user-suspend";
+    std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, root);
+    defer std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    const host = TempHost{ .root = root };
+
+    var home_buf: [256]u8 = undefined;
+    _ = try user.create(&db, io, host, .{
+        .name = "onlynode",
+        .role = .user,
+        .features = .{ .node = true },
+    }, &home_buf);
+    try std.testing.expect((try user.featuresInUse(&db)).node);
+    try user.setSuspended(&db, "onlynode", true);
+    try std.testing.expect(!(try user.featuresInUse(&db)).node);
+    try user.setSuspended(&db, "onlynode", false);
+    try std.testing.expect((try user.featuresInUse(&db)).node);
+}

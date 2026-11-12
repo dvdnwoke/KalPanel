@@ -71,15 +71,15 @@ pub fn ensureDependencies(used: FeatureSet) Interface.InstallError!void {
 }
 
 /// One PHP version (8.3) and one Node package. Unused features contribute nothing.
-pub fn collectPackages(used: FeatureSet, out: []Package) usize {
+/// Returns `error.PackageListTooSmall` instead of quietly dropping a package.
+pub fn collectPackages(used: FeatureSet, out: []Package) error{PackageListTooSmall}!usize {
     var count: usize = 0;
     for (all_deps) |dep| {
         if (!used.isEnabled(dep.feature)) continue;
         for (dep.packages) |name| {
-            if (count < out.len) {
-                out[count] = .{ .feature = dep.feature, .name = name };
-                count += 1;
-            }
+            if (count >= out.len) return error.PackageListTooSmall;
+            out[count] = .{ .feature = dep.feature, .name = name };
+            count += 1;
         }
     }
     return count;

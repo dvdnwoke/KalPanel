@@ -4,13 +4,13 @@ const Db = @import("../database/mod.zig").Db;
 const users = @import("../user/mod.zig");
 const layout_mod = @import("../layout.zig");
 const tls_mod = @import("../tls.zig");
+const domain_mod = @import("../domain/mod.zig");
 
 pub fn create(db: *Db, io: std.Io, layout: layout_mod.Layout, address: []const u8, password_buf: []u8) ![]const u8 {
     const at = std.mem.indexOfScalar(u8, address, '@') orelse return error.InvalidAddress;
-    if (std.mem.indexOfScalar(u8, address[at + 1 ..], '@') != null) return error.InvalidAddress;
     const local = address[0..at];
     const domain_name = address[at + 1 ..];
-    try validateLocal(local);
+    try validateAddress(address);
 
     const domain = (try findDomain(db, domain_name)) orelse return error.DomainNotFound;
     if (domain.suspended) return error.DomainSuspended;
@@ -262,10 +262,25 @@ fn addressTaken(db: *Db, address: []const u8) !bool {
     return (try query.step()) != null;
 }
 
+pub fn validateAddress(address: []const u8) !void {
+    const at = std.mem.indexOfScalar(u8, address, '@') orelse return error.InvalidAddress;
+    if (at == 0 or std.mem.indexOfScalar(u8, address[at + 1 ..], '@') != null) return error.InvalidAddress;
+    try validateLocal(address[0..at]);
+    domain_mod.validateDomain(address[at + 1 ..]) catch return error.InvalidAddress;
+}
+
 fn validateLocal(local: []const u8) !void {
     if (local.len == 0 or local.len > 64) return error.InvalidAddress;
+    if (local[0] == '.' or local[local.len - 1] == '.') return error.InvalidAddress;
+    var prev_dot = false;
     for (local) |c| {
-        const ok = (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '.' or c == '_' or c == '-';
+        if (c == '.') {
+            if (prev_dot) return error.InvalidAddress;
+            prev_dot = true;
+            continue;
+        }
+        prev_dot = false;
+        const ok = (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_' or c == '-';
         if (!ok) return error.InvalidAddress;
     }
 }

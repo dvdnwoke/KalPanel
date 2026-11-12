@@ -112,6 +112,6 @@ sudo kalpanel --db /var/lib/kalpanel.sqlite user create alice --role user --acto
 
 ## Tests
 
-```bash
-zig build test
-```
+`zig build test` is part of the project. GitHub runs that same command on every push.
+
+It covers hosting (PHP, Node, mail, suspend, the package ledger, Let's Encrypt) and the property tests in `src/fuzz.zig`. Those throw random account names, domain names, and mailbox addresses at the validators, and check that every combination of features installs only that feature's packages. A name the validator accepts has to match the grammar. A name like `..` or `-bad.com` must be rejected, because those strings are written into filesystem paths and nginx config.

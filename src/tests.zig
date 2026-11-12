@@ -2,4 +2,5 @@ comptime {
     _ = @import("dependencies/tests.zig");
     _ = @import("user/tests.zig");
     _ = @import("cli/tests.zig");
+    _ = @import("fuzz.zig");
 }

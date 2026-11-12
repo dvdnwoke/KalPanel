@@ -153,6 +153,7 @@ fn userCreate(db: *Db, io: std.Io, layout: layout_mod.Layout, rest: []const []co
     if (parsed.actor) |name| {
         var home_buf: [512]u8 = undefined;
         const account = (try users.lookup(db, name, &home_buf)) orelse return error.UserNotFound;
+        if (account.suspended) return error.UserSuspended;
         actor = switch (account.role) {
             .admin => .admin,
             .reseller => .reseller,
