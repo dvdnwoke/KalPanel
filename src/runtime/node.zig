@@ -12,12 +12,10 @@ pub const server_js =
     \\}).listen(Number(port), "127.0.0.1");
 ;
 
-pub fn appendServer(buf: []u8, len: *usize, domain: []const u8, port: i64) !void {
+pub fn appendLocations(buf: []u8, len: *usize, port: i64) !void {
     var port_buf: [16]u8 = undefined;
     const port_txt = try std.fmt.bufPrint(&port_buf, "{d}", .{port});
-    try layout.add(buf, len, "server {\n    listen 80;\n    listen [::]:80;\n    server_name ");
-    try layout.add(buf, len, domain);
-    try layout.add(buf, len, ";\n    location / {\n        proxy_pass http://127.0.0.1:");
+    try layout.add(buf, len, "    location / {\n        proxy_pass http://127.0.0.1:");
     try layout.add(buf, len, port_txt);
     try layout.add(buf, len,
         \\;
@@ -25,7 +23,6 @@ pub fn appendServer(buf: []u8, len: *usize, domain: []const u8, port: i64) !void
         \\        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         \\        proxy_set_header X-Forwarded-Proto $scheme;
         \\    }
-        \\}
         \\
     );
 }

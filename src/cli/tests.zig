@@ -3,6 +3,8 @@ const cli = @import("mod.zig");
 const email_mod = @import("../email/mod.zig");
 const layout_mod = @import("../layout.zig");
 const setup_mod = @import("../setup/mod.zig");
+const tls_mod = @import("../tls.zig");
+const version = @import("../version.zig");
 const activate_mod = @import("../activate.zig");
 const Db = @import("../database/mod.zig").Db;
 const FeatureSet = @import("../dependencies/features.zig").FeatureSet;
@@ -59,7 +61,46 @@ const Fake = struct {
     }
 };
 
-fn exec(io: std.Io, root: []const u8, db_path: []const u8, args: []const []const u8, apt: ?setup_mod.Apt, out_buf: []u8) ![]const u8 {
+const FakeIssuer = struct {
+    domain: [253]u8 = undefined,
+    domain_len: usize = 0,
+    webroot: [512]u8 = undefined,
+    webroot_len: usize = 0,
+    email: [128]u8 = undefined,
+    email_len: usize = 0,
+    renewed: bool = false,
+
+    fn issuer(self: *FakeIssuer) tls_mod.Issuer {
+        return .{ .ctx = self, .issue = issue, .renew = renew };
+    }
+
+    fn issue(ctx: *anyopaque, io: std.Io, domain: []const u8, webroot: []const u8, email: []const u8, config_dir: []const u8) !void {
+        const self: *FakeIssuer = @ptrCast(@alignCast(ctx));
+        if (domain.len > self.domain.len or webroot.len > self.webroot.len or email.len > self.email.len) return error.TooLong;
+        @memcpy(self.domain[0..domain.len], domain);
+        self.domain_len = domain.len;
+        @memcpy(self.webroot[0..webroot.len], webroot);
+        self.webroot_len = webroot.len;
+        @memcpy(self.email[0..email.len], email);
+        self.email_len = email.len;
+
+        var full_buf: [768]u8 = undefined;
+        const full = try std.fmt.bufPrint(&full_buf, "{s}/live/{s}/fullchain.pem", .{ config_dir, domain });
+        try layout_mod.writeFile(io, full, "kalpanel-test-cert\n");
+        var key_buf: [768]u8 = undefined;
+        const key = try std.fmt.bufPrint(&key_buf, "{s}/live/{s}/privkey.pem", .{ config_dir, domain });
+        try layout_mod.writeFile(io, key, "kalpanel-test-key\n");
+    }
+
+    fn renew(ctx: *anyopaque, io: std.Io, config_dir: []const u8) !void {
+        _ = io;
+        _ = config_dir;
+        const self: *FakeIssuer = @ptrCast(@alignCast(ctx));
+        self.renewed = true;
+    }
+};
+
+fn exec(io: std.Io, root: []const u8, db_path: []const u8, args: []const []const u8, apt: ?setup_mod.Apt, issuer: ?tls_mod.Issuer, out_buf: []u8) ![]const u8 {
     var out = cli.Out{ .buf = out_buf };
     var argv: [16][]const u8 = undefined;
     argv[0] = "kalpanel";
@@ -68,10 +109,14 @@ fn exec(io: std.Io, root: []const u8, db_path: []const u8, args: []const []const
     argv[3] = "--root";
     argv[4] = root;
     for (args, 0..) |arg, i| argv[5 + i] = arg;
-    if (apt) |real| {
-        try cli.runWith(std.testing.allocator, io, argv[0 .. 5 + args.len], &out, real);
-    } else {
+    if (apt == null and issuer == null) {
         try cli.run(std.testing.allocator, io, argv[0 .. 5 + args.len], &out);
+    } else {
+        var apt_ctx: u8 = 0;
+        var tls_ctx: u8 = 0;
+        const apt_real = apt orelse setup_mod.live(&apt_ctx);
+        const issuer_real = issuer orelse tls_mod.live(&tls_ctx);
+        try cli.runWith(std.testing.allocator, io, argv[0 .. 5 + args.len], &out, apt_real, issuer_real);
     }
     return out.slice();
 }
@@ -94,11 +139,11 @@ test "cli hosts php and node on port 80 and mail for outlook" {
     const db_path = root ++ "/kalpanel.sqlite";
 
     var out_buf: [512]u8 = undefined;
-    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--email", "--php", "--node" }, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--email", "--php", "--node" }, null, null, &out_buf);
 
-    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, &out_buf);
-    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "app.example.com", "--runtime", "node" }, null, &out_buf);
-    const email_out = try exec(io, root, db_path, &.{ "email", "create", "alice@example.com" }, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "app.example.com", "--runtime", "node" }, null, null, &out_buf);
+    const email_out = try exec(io, root, db_path, &.{ "email", "create", "alice@example.com" }, null, null, &out_buf);
     const password_view = passwordOf(email_out);
     try std.testing.expect(password_view.len == 18);
     var password_store: [32]u8 = undefined;
@@ -166,17 +211,17 @@ test "cli hosts php and node on port 80 and mail for outlook" {
     try std.testing.expect(std.mem.indexOf(u8, passwd, "alice@example.com:{SHA256}") != null);
     try std.testing.expect(std.mem.indexOf(u8, passwd, hash) != null);
 
-    _ = try exec(io, root, db_path, &.{ "email", "suspend", "alice@example.com" }, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "email", "suspend", "alice@example.com" }, null, null, &out_buf);
     const passwd_after = try layout_mod.readFile(io, root ++ "/etc/dovecot/kalpanel.passwd", &pass_buf);
     try std.testing.expect(std.mem.indexOf(u8, passwd_after, "alice@example.com") == null);
     const boxes_after = try layout_mod.readFile(io, root ++ "/etc/postfix/kalpanel-virtual-mailboxes", &box_buf);
     try std.testing.expect(std.mem.indexOf(u8, boxes_after, "alice@example.com") == null);
 
-    _ = try exec(io, root, db_path, &.{ "domain", "suspend", "example.com" }, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "suspend", "example.com" }, null, null, &out_buf);
     try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/example.com.conf", &buf));
     _ = try layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/app.example.com.conf", &node_buf);
 
-    _ = try exec(io, root, db_path, &.{ "user", "suspend", "admin" }, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "user", "suspend", "admin" }, null, null, &out_buf);
     try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/app.example.com.conf", &node_buf));
     try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/etc/systemd/system/kalpanel-app.example.com.service", &unit_buf));
 }
@@ -201,10 +246,11 @@ test "setup records only packages it installed" {
 
     var out_buf: [256]u8 = undefined;
     var fake = Fake{ .present = &.{ "nginx", "postfix" } };
-    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--php", "--email" }, null, &out_buf);
-    _ = try exec(io, root, db_path, &.{ "setup" }, fake.apt(), &out_buf);
+    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--php", "--email" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "setup" }, fake.apt(), null, &out_buf);
 
-    try std.testing.expectEqual(@as(usize, 3), fake.installed_len);
+    try std.testing.expectEqual(@as(usize, 4), fake.installed_len);
+    try std.testing.expect(contains(&fake.installed, fake.installed_len, "certbot"));
     try std.testing.expect(contains(&fake.installed, fake.installed_len, "php8.3-cli"));
     try std.testing.expect(contains(&fake.installed, fake.installed_len, "php8.3-fpm"));
     try std.testing.expect(contains(&fake.installed, fake.installed_len, "dovecot-imapd"));
@@ -213,11 +259,12 @@ test "setup records only packages it installed" {
     try std.testing.expect(!contains(&fake.installed, fake.installed_len, "nodejs"));
     try std.testing.expect(!contains(&fake.installed, fake.installed_len, "php8.2-fpm"));
 
-    _ = try exec(io, root, db_path, &.{ "setup" }, fake.apt(), &out_buf);
-    try std.testing.expectEqual(@as(usize, 3), fake.installed_len);
+    _ = try exec(io, root, db_path, &.{ "setup" }, fake.apt(), null, &out_buf);
+    try std.testing.expectEqual(@as(usize, 4), fake.installed_len);
 
-    _ = try exec(io, root, db_path, &.{ "uninstall" }, fake.apt(), &out_buf);
-    try std.testing.expectEqual(@as(usize, 3), fake.removed_len);
+    _ = try exec(io, root, db_path, &.{ "uninstall" }, fake.apt(), null, &out_buf);
+    try std.testing.expectEqual(@as(usize, 4), fake.removed_len);
+    try std.testing.expect(contains(&fake.removed, fake.removed_len, "certbot"));
     try std.testing.expect(contains(&fake.removed, fake.removed_len, "php8.3-cli"));
     try std.testing.expect(contains(&fake.removed, fake.removed_len, "php8.3-fpm"));
     try std.testing.expect(contains(&fake.removed, fake.removed_len, "dovecot-imapd"));
@@ -271,10 +318,10 @@ test "activation reloads php 8.3, node, nginx, and outlook mail" {
     defer std.Io.Dir.cwd().deleteTree(io, root) catch {};
     const db_path = root ++ "/kalpanel.sqlite";
     var out_buf: [512]u8 = undefined;
-    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--email", "--php", "--node" }, null, &out_buf);
-    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, &out_buf);
-    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "app.example.com", "--runtime", "node" }, null, &out_buf);
-    _ = try exec(io, root, db_path, &.{ "email", "create", "alice@example.com" }, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--email", "--php", "--node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "app.example.com", "--runtime", "node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "email", "create", "alice@example.com" }, null, null, &out_buf);
 
     const db_z = try std.testing.allocator.allocSentinel(u8, db_path.len, 0);
     defer std.testing.allocator.free(db_z);
@@ -301,4 +348,81 @@ test "activation reloads php 8.3, node, nginx, and outlook mail" {
     const master = try layout_mod.readFile(io, root ++ "/etc/postfix/master.cf", &master_buf);
     try std.testing.expect(std.mem.indexOf(u8, master, "submission inet") != null);
     try std.testing.expect(std.mem.indexOf(u8, master, "smtpd_sasl_auth_enable=yes") != null);
+}
+
+test "version is 0.0.5" {
+    try std.testing.expectEqualStrings("0.0.5", version.string);
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    var buf: [64]u8 = undefined;
+    var out = cli.Out{ .buf = &buf };
+    try cli.run(std.testing.allocator, threaded.io(), &.{ "kalpanel", "version" }, &out);
+    try std.testing.expectEqualStrings("kalpanel 0.0.5\n", out.slice());
+}
+
+test "lets encrypt serves the site on port 443" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const root = "/tmp/kalpanel-tls-test";
+    std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, root);
+    defer std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    const db_path = root ++ "/kalpanel.sqlite";
+
+    var out_buf: [512]u8 = undefined;
+    var issuer = FakeIssuer{};
+    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--email", "--php", "--node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "app.example.com", "--runtime", "node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "email", "create", "alice@example.com" }, null, null, &out_buf);
+
+    var conf_buf: [4096]u8 = undefined;
+    const before = try layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/example.com.conf", &conf_buf);
+    try std.testing.expect(std.mem.indexOf(u8, before, "listen 80;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, before, "/.well-known/acme-challenge/") != null);
+    try std.testing.expect(std.mem.indexOf(u8, before, "listen 443 ssl;") == null);
+
+    const tls_out = try exec(io, root, db_path, &.{ "domain", "tls", "example.com", "admin@example.com" }, null, issuer.issuer(), &out_buf);
+    try std.testing.expect(std.mem.indexOf(u8, tls_out, "https://example.com") != null);
+    try std.testing.expectEqualStrings("example.com", issuer.domain[0..issuer.domain_len]);
+    try std.testing.expectEqualStrings("admin@example.com", issuer.email[0..issuer.email_len]);
+    try std.testing.expect(std.mem.indexOf(u8, issuer.webroot[0..issuer.webroot_len], "/home/admin/domains/example.com/public") != null);
+
+    const after = try layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/example.com.conf", &conf_buf);
+    try std.testing.expect(std.mem.indexOf(u8, after, "listen 80;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "listen [::]:80;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "listen 443 ssl;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "listen [::]:443 ssl;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "return 301 https://$host$request_uri;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "ssl_certificate ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "/etc/letsencrypt/live/example.com/fullchain.pem;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "/etc/letsencrypt/live/example.com/privkey.pem;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "unix:/run/php/php8.3-fpm.sock") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "fastcgi_param HTTPS on;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after, "php8.2") == null);
+
+    var node_buf: [2048]u8 = undefined;
+    const node_conf = try layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/app.example.com.conf", &node_buf);
+    try std.testing.expect(std.mem.indexOf(u8, node_conf, "ssl_certificate ") == null);
+    try std.testing.expect(std.mem.indexOf(u8, node_conf, "proxy_pass http://127.0.0.1:20000;") != null);
+
+    var cert_buf: [64]u8 = undefined;
+    const cert = try layout_mod.readFile(io, root ++ "/etc/letsencrypt/live/example.com/fullchain.pem", &cert_buf);
+    try std.testing.expectEqualStrings("kalpanel-test-cert\n", cert);
+
+    var dove_buf: [2048]u8 = undefined;
+    const dove = try layout_mod.readFile(io, root ++ "/etc/dovecot/conf.d/99-kalpanel.conf", &dove_buf);
+    try std.testing.expect(std.mem.indexOf(u8, dove, "fullchain.pem") != null);
+    try std.testing.expect(std.mem.indexOf(u8, dove, "ssl-cert-snakeoil") == null);
+    try std.testing.expect(std.mem.indexOf(u8, dove, "port = 993") != null);
+
+    var hook_buf: [256]u8 = undefined;
+    const hook = try layout_mod.readFile(io, root ++ "/etc/letsencrypt/renewal-hooks/deploy/kalpanel", &hook_buf);
+    try std.testing.expect(std.mem.indexOf(u8, hook, "nginx -s reload") != null);
+
+    _ = try exec(io, root, db_path, &.{ "domain", "renew" }, null, issuer.issuer(), &out_buf);
+    try std.testing.expect(issuer.renewed);
+    const still = try layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/example.com.conf", &conf_buf);
+    try std.testing.expect(std.mem.indexOf(u8, still, "listen 443 ssl;") != null);
 }

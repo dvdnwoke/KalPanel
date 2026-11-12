@@ -3,6 +3,7 @@ const sqlite = @import("sqlite");
 const Db = @import("../database/mod.zig").Db;
 const users = @import("../user/mod.zig");
 const layout_mod = @import("../layout.zig");
+const tls_mod = @import("../tls.zig");
 
 pub fn create(db: *Db, io: std.Io, layout: layout_mod.Layout, address: []const u8, password_buf: []u8) ![]const u8 {
     const at = std.mem.indexOfScalar(u8, address, '@') orelse return error.InvalidAddress;
@@ -89,6 +90,12 @@ fn findDomain(db: *Db, name: []const u8) !?DomainRow {
 }
 
 pub fn reload(db: *Db, io: std.Io, layout: layout_mod.Layout) !void {
+    var tls_name: [253]u8 = undefined;
+    const tls_domain = try tls_mod.firstDomain(db, &tls_name);
+    var cert_full_buf: [512]u8 = undefined;
+    var cert_key_buf: [512]u8 = undefined;
+    const cert_full = if (tls_domain) |name| try tls_mod.fullchainPath(layout, &cert_full_buf, name) else null;
+    const cert_key = if (tls_domain) |name| try tls_mod.privkeyPath(layout, &cert_key_buf, name) else null;
     var domains_body: [4096]u8 = undefined;
     var boxes_body: [4096]u8 = undefined;
     var passwd_body: [4096]u8 = undefined;
@@ -161,6 +168,13 @@ pub fn reload(db: *Db, io: std.Io, layout: layout_mod.Layout) !void {
     try layout_mod.add(&conf, &conf_len, "\nvirtual_mailbox_base = ");
     try layout_mod.add(&conf, &conf_len, base);
     try layout_mod.add(&conf, &conf_len, "\nvirtual_uid_maps = static:5000\nvirtual_gid_maps = static:5000\n");
+    if (cert_full) |full| {
+        try layout_mod.add(&conf, &conf_len, "smtpd_tls_cert_file = ");
+        try layout_mod.add(&conf, &conf_len, full);
+        try layout_mod.add(&conf, &conf_len, "\nsmtpd_tls_key_file = ");
+        try layout_mod.add(&conf, &conf_len, cert_key.?);
+        try layout_mod.add(&conf, &conf_len, "\n");
+    }
 
     var cf_buf: [512]u8 = undefined;
     const cf_path = try layout.resolve(&cf_buf, "etc/postfix/kalpanel.cf");
@@ -182,9 +196,19 @@ pub fn reload(db: *Db, io: std.Io, layout: layout_mod.Layout) !void {
     const master_path = try layout.resolve(&master_buf, "etc/postfix/kalpanel-master.cf");
     try layout_mod.writeFile(io, master_path, master[0..master_len]);
 
-    var dove: [1024]u8 = undefined;
+    var dove: [2048]u8 = undefined;
     var dove_len: usize = 0;
-    try layout_mod.add(&dove, &dove_len, "protocols = imap\nlisten = *\nssl = required\nssl_cert = </etc/ssl/certs/ssl-cert-snakeoil.pem\nssl_key = </etc/ssl/private/ssl-cert-snakeoil.key\nmail_location = maildir:");
+    try layout_mod.add(&dove, &dove_len, "protocols = imap\nlisten = *\nssl = required\n");
+    if (cert_full) |full| {
+        try layout_mod.add(&dove, &dove_len, "ssl_cert = <");
+        try layout_mod.add(&dove, &dove_len, full);
+        try layout_mod.add(&dove, &dove_len, "\nssl_key = <");
+        try layout_mod.add(&dove, &dove_len, cert_key.?);
+        try layout_mod.add(&dove, &dove_len, "\n");
+    } else {
+        try layout_mod.add(&dove, &dove_len, "ssl_cert = </etc/ssl/certs/ssl-cert-snakeoil.pem\nssl_key = </etc/ssl/private/ssl-cert-snakeoil.key\n");
+    }
+    try layout_mod.add(&dove, &dove_len, "mail_location = maildir:");
     try layout_mod.add(&dove, &dove_len, base);
     try layout_mod.add(&dove, &dove_len, "/%d/%n\npassdb {\n  driver = passwd-file\n  args = username_format=%u ");
     try layout_mod.add(&dove, &dove_len, passwd_path);

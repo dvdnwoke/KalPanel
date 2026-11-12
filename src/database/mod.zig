@@ -67,5 +67,6 @@ pub const Db = struct {
             \\  feature TEXT NOT NULL
             \\)
         , .{});
+        self.raw.exec("ALTER TABLE domains ADD COLUMN tls INTEGER NOT NULL DEFAULT 0", .{}) catch {};
     }
 };

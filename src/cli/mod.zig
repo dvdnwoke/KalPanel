@@ -8,6 +8,8 @@ const layout_mod = @import("../layout.zig");
 const ubuntu = @import("../user/ubuntu.zig");
 const activate_mod = @import("../activate.zig");
 const manager = @import("../dependencies/manager.zig");
+const tls_mod = @import("../tls.zig");
+const version = @import("../version.zig");
 
 pub const Out = struct {
     buf: []u8,
@@ -24,11 +26,12 @@ pub const Out = struct {
 };
 
 pub fn run(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out: *Out) !void {
-    var dummy: u8 = 0;
-    return runWith(gpa, io, args, out, setup_mod.live(&dummy));
+    var apt_ctx: u8 = 0;
+    var tls_ctx: u8 = 0;
+    return runWith(gpa, io, args, out, setup_mod.live(&apt_ctx), tls_mod.live(&tls_ctx));
 }
 
-pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out: *Out, apt: setup_mod.Apt) !void {
+pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out: *Out, apt: setup_mod.Apt, issuer: tls_mod.Issuer) !void {
     if (args.len < 2) return usage(out);
     var i: usize = 1;
     var db_path: ?[]const u8 = null;
@@ -45,6 +48,12 @@ pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out
         } else return error.Usage;
     }
     if (i >= args.len) return usage(out);
+    const group = args[i];
+    if (std.mem.eql(u8, group, "version")) {
+        try out.print("kalpanel {s}\n", .{version.string});
+        return;
+    }
+    i += 1;
     const db_path_s = db_path orelse return error.Usage;
     const db_z = try gpa.allocSentinel(u8, db_path_s.len, 0);
     @memcpy(db_z[0..db_path_s.len], db_path_s);
@@ -52,8 +61,6 @@ pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out
     var db = try Db.open(db_z);
     defer db.close();
     const layout = layout_mod.Layout{ .root = root };
-    const group = args[i];
-    i += 1;
 
     if (std.mem.eql(u8, group, "setup")) {
         const used = try users.featuresInUse(&db);
@@ -100,6 +107,22 @@ pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out
         try email_mod.reload(&db, io, layout);
         try activateIfReady(&db, io, layout);
         try out.print("suspended domain {s}\n", .{parsed.pos[0]});
+        return;
+    }
+    if (std.mem.eql(u8, group, "domain") and std.mem.eql(u8, action, "tls")) {
+        const parsed = try parseFlags(rest);
+        if (parsed.pos_len != 2) return error.Usage;
+        try domain_mod.enableTls(&db, io, layout, parsed.pos[0], parsed.pos[1], issuer);
+        try email_mod.reload(&db, io, layout);
+        try activateIfReady(&db, io, layout);
+        try out.print("enabled tls {s}\nhttps://{s}\n", .{ parsed.pos[0], parsed.pos[0] });
+        return;
+    }
+    if (std.mem.eql(u8, group, "domain") and std.mem.eql(u8, action, "renew")) {
+        try domain_mod.renewCerts(&db, io, layout, issuer);
+        try email_mod.reload(&db, io, layout);
+        try activateIfReady(&db, io, layout);
+        try out.print("renewed certificates\n", .{});
         return;
     }
     if (std.mem.eql(u8, group, "email") and std.mem.eql(u8, action, "create")) {
@@ -235,11 +258,15 @@ fn activateIfReady(db: *Db, io: std.Io, layout: layout_mod.Layout) !void {
 
 fn usage(out: *Out) !void {
     try out.print(
+        \\kalpanel 0.0.5
+        \\kalpanel version
         \\kalpanel --db PATH [--root PATH] <command>
         \\  user create NAME --role admin|reseller|user [--actor NAME] [--domain] [--email] [--php] [--node]
         \\  user suspend NAME
         \\  domain create USER DOMAIN --runtime php|node
         \\  domain suspend DOMAIN
+        \\  domain tls DOMAIN EMAIL
+        \\  domain renew
         \\  email create LOCAL@DOMAIN
         \\  email suspend LOCAL@DOMAIN
         \\  setup

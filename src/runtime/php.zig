@@ -7,10 +7,8 @@ pub const index_php =
     \\echo "kalpanel-php-ok";
 ;
 
-pub fn appendServer(buf: []u8, len: *usize, domain: []const u8, public_path: []const u8) !void {
-    try layout.add(buf, len, "server {\n    listen 80;\n    listen [::]:80;\n    server_name ");
-    try layout.add(buf, len, domain);
-    try layout.add(buf, len, ";\n    root ");
+pub fn appendLocations(buf: []u8, len: *usize, public_path: []const u8, https: bool) !void {
+    try layout.add(buf, len, "    root ");
     try layout.add(buf, len, public_path);
     try layout.add(buf, len,
         \\;
@@ -24,5 +22,7 @@ pub fn appendServer(buf: []u8, len: *usize, domain: []const u8, public_path: []c
         \\        fastcgi_pass 
     );
     try layout.add(buf, len, socket);
-    try layout.add(buf, len, ";\n    }\n}\n");
+    try layout.add(buf, len, ";\n");
+    if (https) try layout.add(buf, len, "        fastcgi_param HTTPS on;\n");
+    try layout.add(buf, len, "    }\n");
 }

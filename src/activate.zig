@@ -2,6 +2,7 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const Db = @import("database/mod.zig").Db;
 const layout_mod = @import("layout.zig");
+const tls_mod = @import("tls.zig");
 
 pub const Runner = struct {
     ctx: *anyopaque,
@@ -141,6 +142,19 @@ fn activateMail(db: *Db, io: std.Io, layout: layout_mod.Layout, runner: Runner) 
     try runner.exec(runner.ctx, io, &.{ "postconf", "-e", base_set });
     try runner.exec(runner.ctx, io, &.{ "postconf", "-e", "virtual_uid_maps=static:5000" });
     try runner.exec(runner.ctx, io, &.{ "postconf", "-e", "virtual_gid_maps=static:5000" });
+    var tls_name: [253]u8 = undefined;
+    if (try tls_mod.firstDomain(db, &tls_name)) |domain| {
+        var full_buf: [512]u8 = undefined;
+        var key_buf: [512]u8 = undefined;
+        const full = try tls_mod.fullchainPath(layout, &full_buf, domain);
+        const key = try tls_mod.privkeyPath(layout, &key_buf, domain);
+        var cert_arg: [640]u8 = undefined;
+        const cert_set = try std.fmt.bufPrint(&cert_arg, "smtpd_tls_cert_file={s}", .{full});
+        try runner.exec(runner.ctx, io, &.{ "postconf", "-e", cert_set });
+        var key_arg: [640]u8 = undefined;
+        const key_set = try std.fmt.bufPrint(&key_arg, "smtpd_tls_key_file={s}", .{key});
+        try runner.exec(runner.ctx, io, &.{ "postconf", "-e", key_set });
+    }
     try runner.exec(runner.ctx, io, &.{ "systemctl", "enable", "--now", "postfix" });
     try runner.exec(runner.ctx, io, &.{ "systemctl", "reload", "postfix" });
     try runner.exec(runner.ctx, io, &.{ "systemctl", "enable", "--now", "dovecot" });
