@@ -3,11 +3,19 @@ const manager = @import("dependencies/manager.zig");
 const FeatureSet = @import("features.zig").FeatureSet;
 
 pub fn main() !void {
-    std.debug.print("KalPanel — Light, Easy, and Fast Hosting Control Panel\n", .{});
-    std.debug.print("Dependencies module loaded.\n", .{});
-
-    // Example: only domain and php are used by at least one user
+    // Replace this with the features actually enabled across users.
     const used = FeatureSet{ .domain = true, .php = true };
-    try manager.ensureDependencies(used);
-    std.debug.print("Dependency check/install complete for enabled features.\n", .{});
+
+    var gaps: [8]manager.Gap = undefined;
+    const n = manager.collectMissing(used, &gaps);
+    if (n == 0) {
+        std.debug.print("Dependencies ready.\n", .{});
+        return;
+    }
+
+    std.debug.print("Missing dependencies:\n", .{});
+    for (gaps[0..n]) |gap| {
+        std.debug.print("  {s} requires {s}\n", .{ gap.name, gap.command });
+    }
+    return error.DependenciesNotInstalled;
 }

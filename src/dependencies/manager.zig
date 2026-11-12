@@ -1,4 +1,4 @@
-const std = @import("std");
+const Feature = @import("features.zig").Feature;
 const FeatureSet = @import("features.zig").FeatureSet;
 const Interface = @import("interface.zig");
 const domain = @import("domain.zig");
@@ -13,13 +13,39 @@ const all_deps = [_]Interface.Dependency{
     node.dependency,
 };
 
-/// Filters to only the dependencies whose feature is enabled for at least one user.
+/// A required command that is not installed for an enabled feature.
+pub const Gap = struct {
+    name: []const u8,
+    feature: Feature,
+    command: []const u8,
+};
+
+/// Dependencies whose feature is enabled for at least one user.
 pub fn filterRequired(used: FeatureSet, out: []Interface.Dependency) usize {
     var count: usize = 0;
     for (all_deps) |dep| {
-        if (used.isEnabled(dep.feature)) {
+        if (!used.isEnabled(dep.feature)) continue;
+        if (count < out.len) {
+            out[count] = dep;
+            count += 1;
+        }
+    }
+    return count;
+}
+
+/// Missing commands for enabled features only. Other modules call this before they act.
+pub fn collectMissing(used: FeatureSet, out: []Gap) usize {
+    var count: usize = 0;
+    for (all_deps) |dep| {
+        if (!used.isEnabled(dep.feature)) continue;
+        for (dep.commands) |cmd| {
+            if (Interface.commandExists(cmd)) continue;
             if (count < out.len) {
-                out[count] = dep;
+                out[count] = .{
+                    .name = dep.name,
+                    .feature = dep.feature,
+                    .command = cmd,
+                };
                 count += 1;
             }
         }
@@ -27,13 +53,13 @@ pub fn filterRequired(used: FeatureSet, out: []Interface.Dependency) usize {
     return count;
 }
 
-/// Ensures all required dependencies are present. Returns error if any are missing.
-pub fn ensureDependencies(used: FeatureSet) !void {
-    var buf: [all_deps.len]Interface.Dependency = undefined;
-    const n = filterRequired(used, &buf);
-    for (buf[0..n]) |dep| {
-        if (!dep.check()) {
-            try dep.install();
-        }
-    }
+/// True when every command required by an enabled feature is on PATH.
+pub fn ready(used: FeatureSet) bool {
+    var gaps: [8]Gap = undefined;
+    return collectMissing(used, &gaps) == 0;
+}
+
+/// Fails when any enabled feature is missing a required command.
+pub fn ensureDependencies(used: FeatureSet) Interface.InstallError!void {
+    if (!ready(used)) return error.DependenciesNotInstalled;
 }

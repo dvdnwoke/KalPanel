@@ -1,19 +1,7 @@
-const std = @import("std");
 const Interface = @import("interface.zig");
-
-fn checkNodeDeps() bool {
-    return Interface.commandExists("node") or Interface.commandExists("nodejs");
-}
-
-fn installNodeDeps() Interface.InstallError!void {
-    std.log.info("Node.js runtime missing. Install nodejs and npm on the host.", .{});
-    return error.DependenciesNotInstalled;
-}
 
 pub const dependency = Interface.Dependency{
     .name = "node",
     .feature = .node,
-    .packages = &.{ "nodejs", "npm" },
-    .check = checkNodeDeps,
-    .install = installNodeDeps,
+    .commands = &.{"node"},
 };
