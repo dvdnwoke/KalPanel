@@ -2,6 +2,7 @@ const std = @import("std");
 const Feature = @import("../features.zig").Feature;
 const FeatureSet = @import("../features.zig").FeatureSet;
 const manager = @import("manager.zig");
+const Interface = @import("interface.zig");
 
 test "feature set from list" {
     const features = [_]Feature{ .domain, .php };
@@ -14,11 +15,9 @@ test "feature set from list" {
 
 test "only used features produce dependencies" {
     const set = FeatureSet{ .domain = true, .email = false, .php = true, .node = false };
-    var buf: [8]manager.Interface.Dependency = undefined; // note: need to import Interface
-    // Wait, fix later if needed
+    var buf: [8]Interface.Dependency = undefined;
     const n = manager.filterRequired(set, &buf);
     try std.testing.expect(n == 2);
-    // names should be domain and php
     var found_domain = false;
     var found_php = false;
     for (buf[0..n]) |d| {
@@ -30,7 +29,7 @@ test "only used features produce dependencies" {
 
 test "no users using feature means no dep" {
     const set = FeatureSet{}; // all false
-    var buf: [8]manager.Interface.Dependency = undefined;
+    var buf: [8]Interface.Dependency = undefined;
     const n = manager.filterRequired(set, &buf);
     try std.testing.expect(n == 0);
 }
@@ -46,7 +45,7 @@ test "randomized feature selection" {
         set.php = random.boolean();
         set.node = random.boolean();
 
-        var buf: [8]manager.Interface.Dependency = undefined;
+        var buf: [8]Interface.Dependency = undefined;
         const n = manager.filterRequired(set, &buf);
 
         var expected: usize = 0;
