@@ -11,6 +11,8 @@ pub const Dependency = struct {
     name: []const u8,
     feature: Feature,
     commands: []const []const u8,
+    /// Apt packages setup installs when this feature is in use and the package is missing.
+    packages: []const []const u8 = &.{},
 
     pub fn check(self: Dependency) bool {
         for (self.commands) |cmd| {

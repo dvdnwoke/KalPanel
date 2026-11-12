@@ -33,5 +33,39 @@ pub const Db = struct {
             \\  PRIMARY KEY (user_id, feature)
             \\)
         , .{});
+        try self.raw.exec(
+            \\CREATE TABLE IF NOT EXISTS user_flags (
+            \\  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            \\  suspended INTEGER NOT NULL DEFAULT 0
+            \\)
+        , .{});
+        try self.raw.exec(
+            \\CREATE TABLE IF NOT EXISTS domains (
+            \\  id INTEGER PRIMARY KEY,
+            \\  user_id INTEGER NOT NULL REFERENCES users(id),
+            \\  name TEXT NOT NULL UNIQUE,
+            \\  runtime TEXT NOT NULL CHECK (runtime IN ('php', 'node')),
+            \\  public_path TEXT NOT NULL,
+            \\  port INTEGER NOT NULL DEFAULT 0,
+            \\  suspended INTEGER NOT NULL DEFAULT 0
+            \\)
+        , .{});
+        try self.raw.exec(
+            \\CREATE TABLE IF NOT EXISTS emails (
+            \\  id INTEGER PRIMARY KEY,
+            \\  domain_id INTEGER NOT NULL REFERENCES domains(id),
+            \\  local_part TEXT NOT NULL,
+            \\  address TEXT NOT NULL UNIQUE,
+            \\  password_sha256 TEXT NOT NULL,
+            \\  suspended INTEGER NOT NULL DEFAULT 0,
+            \\  UNIQUE (domain_id, local_part)
+            \\)
+        , .{});
+        try self.raw.exec(
+            \\CREATE TABLE IF NOT EXISTS installed_packages (
+            \\  name TEXT PRIMARY KEY,
+            \\  feature TEXT NOT NULL
+            \\)
+        , .{});
     }
 };

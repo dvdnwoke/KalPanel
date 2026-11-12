@@ -4,4 +4,5 @@ pub const dependency = Interface.Dependency{
     .name = "email",
     .feature = .email,
     .commands = &.{"postfix"},
+    .packages = &.{ "postfix", "dovecot-imapd" },
 };

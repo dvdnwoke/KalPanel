@@ -5,4 +5,5 @@ pub const dependency = Interface.Dependency{
     .name = "domain",
     .feature = .domain,
     .commands = &.{"nginx"},
+    .packages = &.{"nginx"},
 };

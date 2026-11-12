@@ -20,6 +20,12 @@ pub const Gap = struct {
     command: []const u8,
 };
 
+/// Apt package setup may install for an enabled feature.
+pub const Package = struct {
+    feature: Feature,
+    name: []const u8,
+};
+
 /// Dependencies whose feature is enabled for at least one user.
 pub fn filterRequired(used: FeatureSet, out: []Interface.Dependency) usize {
     var count: usize = 0;
@@ -62,4 +68,19 @@ pub fn ready(used: FeatureSet) bool {
 /// Fails when any enabled feature is missing a required command.
 pub fn ensureDependencies(used: FeatureSet) Interface.InstallError!void {
     if (!ready(used)) return error.DependenciesNotInstalled;
+}
+
+/// One PHP version (8.3) and one Node package. Unused features contribute nothing.
+pub fn collectPackages(used: FeatureSet, out: []Package) usize {
+    var count: usize = 0;
+    for (all_deps) |dep| {
+        if (!used.isEnabled(dep.feature)) continue;
+        for (dep.packages) |name| {
+            if (count < out.len) {
+                out[count] = .{ .feature = dep.feature, .name = name };
+                count += 1;
+            }
+        }
+    }
+    return count;
 }

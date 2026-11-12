@@ -109,7 +109,9 @@ pub fn featuresInUse(db: *Db) !FeatureSet {
     const query = try db.raw.prepare(
         struct {},
         struct { feature: sqlite.Text },
-        "SELECT DISTINCT feature FROM user_features",
+        "SELECT DISTINCT uf.feature AS feature FROM user_features uf " ++
+            "LEFT JOIN user_flags f ON f.user_id = uf.user_id " ++
+            "WHERE COALESCE(f.suspended, 0) = 0",
     );
     defer query.finalize();
     try query.bind(.{});
@@ -203,4 +205,49 @@ fn parseFeature(name: []const u8) ?Feature {
     if (std.mem.eql(u8, name, "php")) return .php;
     if (std.mem.eql(u8, name, "node")) return .node;
     return null;
+}
+
+pub const Account = struct {
+    id: i64,
+    role: Role,
+    suspended: bool,
+    home: []const u8,
+};
+
+pub fn parseRole(name: []const u8) ?Role {
+    if (std.mem.eql(u8, name, "admin")) return .admin;
+    if (std.mem.eql(u8, name, "reseller")) return .reseller;
+    if (std.mem.eql(u8, name, "user")) return .user;
+    return null;
+}
+
+pub fn lookup(db: *Db, name: []const u8, home_buf: []u8) !?Account {
+    const query = try db.raw.prepare(
+        struct { name: sqlite.Text },
+        struct { id: i64, role: sqlite.Text, home: sqlite.Text, suspended: i64 },
+        "SELECT u.id AS id, u.role AS role, u.home AS home, COALESCE(f.suspended, 0) AS suspended " ++
+            "FROM users u LEFT JOIN user_flags f ON f.user_id = u.id WHERE u.name = :name",
+    );
+    defer query.finalize();
+    try query.bind(.{ .name = sqlite.text(name) });
+    defer query.reset();
+    const row = (try query.step()) orelse return null;
+    if (row.home.data.len > home_buf.len) return error.HomeTooLong;
+    @memcpy(home_buf[0..row.home.data.len], row.home.data);
+    return .{
+        .id = row.id,
+        .role = parseRole(row.role.data) orelse return error.UnknownRole,
+        .suspended = row.suspended != 0,
+        .home = home_buf[0..row.home.data.len],
+    };
+}
+
+pub fn setSuspended(db: *Db, name: []const u8, suspended: bool) !void {
+    var home_buf: [512]u8 = undefined;
+    const account = (try lookup(db, name, &home_buf)) orelse return error.UserNotFound;
+    const flag: i64 = if (suspended) 1 else 0;
+    try db.raw.exec(
+        "INSERT INTO user_flags (user_id, suspended) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET suspended = excluded.suspended",
+        .{ account.id, flag },
+    );
 }

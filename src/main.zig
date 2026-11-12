@@ -1,21 +1,21 @@
 const std = @import("std");
-const manager = @import("dependencies/manager.zig");
-const FeatureSet = @import("features.zig").FeatureSet;
+const cli = @import("cli/mod.zig");
 
-pub fn main() !void {
-    // Replace this with the features actually enabled across users.
-    const used = FeatureSet{ .domain = true, .php = true };
-
-    var gaps: [8]manager.Gap = undefined;
-    const n = manager.collectMissing(used, &gaps);
-    if (n == 0) {
-        std.debug.print("Dependencies ready.\n", .{});
-        return;
+pub fn main(init: std.process.Init) !void {
+    var it = std.process.Args.Iterator.init(init.minimal.args);
+    var args: [24][]const u8 = undefined;
+    var n: usize = 0;
+    while (it.next()) |arg| {
+        if (n >= args.len) return error.TooManyArgs;
+        args[n] = arg;
+        n += 1;
     }
 
-    std.debug.print("Missing dependencies:\n", .{});
-    for (gaps[0..n]) |gap| {
-        std.debug.print("  {s} requires {s}\n", .{ gap.name, gap.command });
-    }
-    return error.DependenciesNotInstalled;
+    var out_buf: [4096]u8 = undefined;
+    var out = cli.Out{ .buf = &out_buf };
+    cli.run(init.gpa, init.io, args[0..n], &out) catch |err| {
+        if (out.len > 0) std.debug.print("{s}", .{out.slice()});
+        return err;
+    };
+    if (out.len > 0) std.debug.print("{s}", .{out.slice()});
 }
