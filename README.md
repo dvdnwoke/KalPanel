@@ -1,4 +1,4 @@
-# KalPanel 0.0.7
+# KalPanel 0.0.8
 
 Light hosting control panel for Ubuntu, written in Zig. It creates users, domains, and mailboxes, serves one PHP site and one Node site through nginx, and turns a domain on with a Let's Encrypt certificate.
 
@@ -8,20 +8,20 @@ This release is a command-line tool. There is no web interface yet.
 
 Download the static **x86_64 Linux** binary (Ubuntu, Arch, and other glibc or musl systems):
 
-[kalpanel-0.0.7-x86_64-linux.tar.gz](https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.7/kalpanel-0.0.7-x86_64-linux.tar.gz)
+[kalpanel-0.0.8-x86_64-linux.tar.gz](https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.8/kalpanel-0.0.8-x86_64-linux.tar.gz)
 
 ```bash
-curl -L -o kalpanel-0.0.7-x86_64-linux.tar.gz \
-  https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.7/kalpanel-0.0.7-x86_64-linux.tar.gz
-tar -xzf kalpanel-0.0.7-x86_64-linux.tar.gz
+curl -L -o kalpanel-0.0.8-x86_64-linux.tar.gz \
+  https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.8/kalpanel-0.0.8-x86_64-linux.tar.gz
+tar -xzf kalpanel-0.0.8-x86_64-linux.tar.gz
 sudo install -m 755 kalpanel /usr/local/bin/kalpanel
 kalpanel version
 ```
 
-`kalpanel version` prints `kalpanel 0.0.7`.
+`kalpanel version` prints `kalpanel 0.0.8`.
 
 ```text
-04ee3b1a697dba6acb981224001c862de95e6259e205e9ee27a1eeae4955240c  kalpanel-0.0.7-x86_64-linux.tar.gz
+5d25d7062e866d189261474cc5f30676a7d4af114d2c7eff5289de6c442a534f  kalpanel-0.0.8-x86_64-linux.tar.gz
 ```
 
 Build from source instead if you have Zig 0.17 or newer:
@@ -58,6 +58,8 @@ sudo kalpanel --db /var/lib/kalpanel.sqlite setup
 sudo kalpanel --db /var/lib/kalpanel.sqlite domain create admin example.com --runtime php
 sudo kalpanel --db /var/lib/kalpanel.sqlite domain create admin app.example.com --runtime node
 ```
+
+`setup` prints each package before it installs it, and apt's own output is shown. Packages are installed one at a time. If it stops, run the same command again. Anything already installed is skipped. It does not start over.
 
 Put the site in the public folder:
 

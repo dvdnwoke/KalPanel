@@ -121,6 +121,29 @@ fn exec(io: std.Io, root: []const u8, db_path: []const u8, args: []const []const
     return out.slice();
 }
 
+test "apt installs one package and does not prompt" {
+    var argv: [16][]const u8 = undefined;
+    const args = try setup_mod.fillAptArgv("install", &.{ "nginx" }, &argv);
+    try std.testing.expectEqualStrings("/usr/bin/apt-get", args[3]);
+    try std.testing.expectEqualStrings("install", args[4]);
+    try std.testing.expectEqualStrings("nginx", args[args.len - 1]);
+    var joined: [512]u8 = undefined;
+    var len: usize = 0;
+    for (args) |arg| {
+        if (len + arg.len + 1 > joined.len) return error.TooLong;
+        @memcpy(joined[len..][0..arg.len], arg);
+        len += arg.len;
+        joined[len] = ' ';
+        len += 1;
+    }
+    const text = joined[0..len];
+    try std.testing.expect(std.mem.indexOf(u8, text, "DEBIAN_FRONTEND=noninteractive") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "NEEDRESTART_MODE=a") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "DPkg::Lock::Timeout=60") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "php8.3-fpm") == null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "postfix") == null);
+}
+
 test "sha256 password scheme is dovecot base64" {
     var buf: [64]u8 = undefined;
     const hash = email_mod.sha256B64("", &buf);
@@ -350,14 +373,14 @@ test "activation reloads php 8.3, node, nginx, and outlook mail" {
     try std.testing.expect(std.mem.indexOf(u8, master, "smtpd_sasl_auth_enable=yes") != null);
 }
 
-test "version is 0.0.7" {
-    try std.testing.expectEqualStrings("0.0.7", version.string);
+test "version is 0.0.8" {
+    try std.testing.expectEqualStrings("0.0.8", version.string);
     var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     var buf: [64]u8 = undefined;
     var out = cli.Out{ .buf = &buf };
     try cli.run(std.testing.allocator, threaded.io(), &.{ "kalpanel", "version" }, &out);
-    try std.testing.expectEqualStrings("kalpanel 0.0.7\n", out.slice());
+    try std.testing.expectEqualStrings("kalpanel 0.0.8\n", out.slice());
 }
 
 test "lets encrypt serves the site on port 443" {

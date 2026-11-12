@@ -2,6 +2,7 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const Db = @import("../database/mod.zig").Db;
 const FeatureSet = @import("../dependencies/features.zig").FeatureSet;
+const layout_mod = @import("../layout.zig");
 const manager = @import("../dependencies/manager.zig");
 
 pub const Apt = struct {
@@ -9,29 +10,40 @@ pub const Apt = struct {
     isInstalled: *const fn (ctx: *anyopaque, io: std.Io, name: []const u8) bool,
     install: *const fn (ctx: *anyopaque, io: std.Io, names: []const []const u8) anyerror!void,
     remove: *const fn (ctx: *anyopaque, io: std.Io, names: []const []const u8) anyerror!void,
+    /// Optional. Live apt updates package lists once before installing.
+    prepare: ?*const fn (ctx: *anyopaque, io: std.Io) anyerror!void = null,
 };
 
-/// Installs missing packages for features that are actually in use.
-/// Packages that are already on the system are not recorded, so uninstall will not remove them.
+/// Installs missing packages one at a time and records each one as soon as it
+/// succeeds. A second `setup` skips packages that are already installed.
 pub fn sync(db: *Db, io: std.Io, used: FeatureSet, apt: Apt) !void {
     var pkgs: [8]manager.Package = undefined;
     const n = try manager.collectPackages(used, &pkgs);
-    var missing: [8][]const u8 = undefined;
-    var missing_features: [8][]const u8 = undefined;
+    var missing: [8]manager.Package = undefined;
     var m: usize = 0;
+    std.debug.print("setup: checking installed packages\n", .{});
     for (pkgs[0..n]) |pkg| {
-        if (apt.isInstalled(apt.ctx, io, pkg.name)) continue;
-        missing[m] = pkg.name;
-        missing_features[m] = @tagName(pkg.feature);
+        if (apt.isInstalled(apt.ctx, io, pkg.name)) {
+            std.debug.print("setup: {s} already installed\n", .{pkg.name});
+            continue;
+        }
+        std.debug.print("setup: {s} missing\n", .{pkg.name});
+        missing[m] = pkg;
         m += 1;
     }
-    if (m == 0) return;
-    try apt.install(apt.ctx, io, missing[0..m]);
-    for (missing[0..m], missing_features[0..m]) |name, feature| {
+    if (m == 0) {
+        std.debug.print("setup: nothing to install\n", .{});
+        return;
+    }
+    if (apt.prepare) |prepare| try prepare(apt.ctx, io);
+    for (missing[0..m]) |pkg| {
+        std.debug.print("setup: installing {s}\n", .{pkg.name});
+        try apt.install(apt.ctx, io, &.{pkg.name});
         try db.raw.exec(
             "INSERT OR IGNORE INTO installed_packages (name, feature) VALUES (:name, :feature)",
-            .{ .name = sqlite.text(name), .feature = sqlite.text(feature) },
+            .{ .name = sqlite.text(pkg.name), .feature = sqlite.text(@tagName(pkg.feature)) },
         );
+        std.debug.print("setup: installed {s}\n", .{pkg.name});
     }
 }
 
@@ -69,6 +81,7 @@ pub fn live(ctx: *anyopaque) Apt {
         .isInstalled = liveInstalled,
         .install = liveInstall,
         .remove = liveRemove,
+        .prepare = livePrepare,
     };
 }
 
@@ -76,12 +89,26 @@ fn liveInstalled(ctx: *anyopaque, io: std.Io, name: []const u8) bool {
     _ = ctx;
     const allocator = std.heap.page_allocator;
     const result = std.process.run(allocator, io, .{
-        .argv = &.{ "dpkg-query", "-W", "-f", "${Status}", name },
+        .argv = &.{ "/usr/bin/dpkg-query", "-W", "-f", "${Status}", name },
     }) catch return false;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
     if (!result.term.success()) return false;
     return std.mem.indexOf(u8, result.stdout, "install ok installed") != null;
+}
+
+fn livePrepare(ctx: *anyopaque, io: std.Io) !void {
+    _ = ctx;
+    preseedPostfix(io);
+    std.debug.print("setup: updating package lists\n", .{});
+    try runInherited(io, &.{
+        "/usr/bin/env",
+        "DEBIAN_FRONTEND=noninteractive",
+        "/usr/bin/apt-get",
+        "update",
+        "-o",
+        "DPkg::Lock::Timeout=60",
+    });
 }
 
 fn liveInstall(ctx: *anyopaque, io: std.Io, names: []const []const u8) !void {
@@ -94,20 +121,59 @@ fn liveRemove(ctx: *anyopaque, io: std.Io, names: []const []const u8) !void {
     try liveApt(io, "remove", names);
 }
 
+fn preseedPostfix(io: std.Io) void {
+    const path = "/tmp/kalpanel-postfix.preseed";
+    const body = "postfix postfix/main_mailer_type select Internet Site\npostfix postfix/mailname string localhost\n";
+    layout_mod.writeFile(io, path, body) catch return;
+    runInherited(io, &.{ "/usr/bin/debconf-set-selections", path }) catch {
+        std.debug.print("setup: postfix preseed skipped\n", .{});
+    };
+}
+
+/// One apt invocation. `names` is usually a single package so a stopped setup can continue at the next one.
+pub fn fillAptArgv(action: []const u8, names: []const []const u8, out: [][]const u8) error{TooManyPackages}![]const []const u8 {
+    const prefix = [_][]const u8{
+        "/usr/bin/env",
+        "DEBIAN_FRONTEND=noninteractive",
+        "NEEDRESTART_MODE=a",
+        "/usr/bin/apt-get",
+        action,
+        "-y",
+        "-o",
+        "Dpkg::Options::=--force-confdef",
+        "-o",
+        "Dpkg::Options::=--force-confold",
+        "-o",
+        "DPkg::Lock::Timeout=60",
+    };
+    if (prefix.len + names.len > out.len) return error.TooManyPackages;
+    @memcpy(out[0..prefix.len], &prefix);
+    for (names, 0..) |name, i| out[prefix.len + i] = name;
+    return out[0 .. prefix.len + names.len];
+}
+
 fn liveApt(io: std.Io, action: []const u8, names: []const []const u8) !void {
-    var argv: [14][]const u8 = undefined;
-    argv[0] = "env";
-    argv[1] = "DEBIAN_FRONTEND=noninteractive";
-    argv[2] = "apt-get";
-    argv[3] = action;
-    argv[4] = "-y";
-    if (names.len + 5 > argv.len) return error.TooManyPackages;
-    for (names, 0..) |name, i| argv[5 + i] = name;
-    const allocator = std.heap.page_allocator;
-    const result = std.process.run(allocator, io, .{
-        .argv = argv[0 .. names.len + 5],
-    }) catch return error.PackageCommandFailed;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-    if (!result.term.success()) return error.PackageCommandFailed;
+    var argv: [28][]const u8 = undefined;
+    const args = try fillAptArgv(action, names, &argv);
+    try runInherited(io, args);
+}
+
+fn runInherited(io: std.Io, argv: []const []const u8) !void {
+    std.debug.print("+", .{});
+    for (argv) |arg| std.debug.print(" {s}", .{arg});
+    std.debug.print("\n", .{});
+    var child = std.process.spawn(io, .{
+        .argv = argv,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch |err| {
+        std.debug.print("setup: could not start {s}: {s}\n", .{ argv[0], @errorName(err) });
+        return error.PackageCommandFailed;
+    };
+    const term = child.wait(io) catch return error.PackageCommandFailed;
+    if (!term.success()) {
+        std.debug.print("setup: command failed. Run setup again. Packages already installed are skipped.\n", .{});
+        return error.PackageCommandFailed;
+    }
 }

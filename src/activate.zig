@@ -15,11 +15,20 @@ pub fn live(ctx: *anyopaque) Runner {
 
 fn liveExec(ctx: *anyopaque, io: std.Io, argv: []const []const u8) !void {
     _ = ctx;
-    const allocator = std.heap.page_allocator;
-    const result = std.process.run(allocator, io, .{ .argv = argv }) catch return error.CommandFailed;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-    if (!result.term.success()) return error.CommandFailed;
+    std.debug.print("+", .{});
+    for (argv) |arg| std.debug.print(" {s}", .{arg});
+    std.debug.print("\n", .{});
+    var child = std.process.spawn(io, .{
+        .argv = argv,
+        .stdin = .ignore,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch |err| {
+        std.debug.print("command failed to start: {s}\n", .{@errorName(err)});
+        return error.CommandFailed;
+    };
+    const term = child.wait(io) catch return error.CommandFailed;
+    if (!term.success()) return error.CommandFailed;
 }
 
 /// Reloads nginx, the single PHP 8.3 FPM service, node units, postfix, and dovecot.

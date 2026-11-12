@@ -63,8 +63,10 @@ pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out
     const layout = layout_mod.Layout{ .root = root };
 
     if (std.mem.eql(u8, group, "setup")) {
+        std.debug.print("setup: checking features in use\n", .{});
         const used = try users.featuresInUse(&db);
         try setup_mod.sync(&db, io, used, apt);
+        std.debug.print("setup: applying service configuration\n", .{});
         try activateIfReady(&db, io, layout);
         try out.print("setup complete\n", .{});
         return;
