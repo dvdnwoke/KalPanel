@@ -23,7 +23,6 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the KalPanel CLI");
     run_step.dependOn(&run_cmd.step);
 
-    // Module root must be under src/ so dependency files can import ../features.zig.
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/tests.zig"),

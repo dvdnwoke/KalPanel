@@ -1,5 +1,5 @@
 const std = @import("std");
-const FeatureSet = @import("../features.zig").FeatureSet;
+const FeatureSet = @import("features.zig").FeatureSet;
 const Interface = @import("interface.zig");
 const domain = @import("domain.zig");
 const email = @import("email.zig");

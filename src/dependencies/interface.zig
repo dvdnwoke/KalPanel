@@ -1,5 +1,5 @@
 const std = @import("std");
-const Feature = @import("../features.zig").Feature;
+const Feature = @import("features.zig").Feature;
 
 pub const InstallError = error{
     DependenciesNotInstalled,

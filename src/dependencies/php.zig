@@ -1,6 +1,5 @@
 const std = @import("std");
 const Interface = @import("interface.zig");
-const Feature = @import("../features.zig").Feature;
 
 fn checkPhpDeps() bool {
     return Interface.commandExists("php") or Interface.commandExists("php-fpm");

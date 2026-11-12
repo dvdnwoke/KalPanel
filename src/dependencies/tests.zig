@@ -1,6 +1,6 @@
 const std = @import("std");
-const Feature = @import("../features.zig").Feature;
-const FeatureSet = @import("../features.zig").FeatureSet;
+const Feature = @import("features.zig").Feature;
+const FeatureSet = @import("features.zig").FeatureSet;
 const manager = @import("manager.zig");
 const Interface = @import("interface.zig");
 

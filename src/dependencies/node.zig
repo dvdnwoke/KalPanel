@@ -1,6 +1,5 @@
 const std = @import("std");
 const Interface = @import("interface.zig");
-const Feature = @import("../features.zig").Feature;
 
 fn checkNodeDeps() bool {
     return Interface.commandExists("node") or Interface.commandExists("nodejs");

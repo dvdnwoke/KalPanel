@@ -1,6 +1,5 @@
 const std = @import("std");
 const Interface = @import("interface.zig");
-const Feature = @import("../features.zig").Feature;
 
 fn checkEmailDeps() bool {
     return Interface.commandExists("postfix") or Interface.commandExists("exim4");
@@ -14,7 +13,7 @@ fn installEmailDeps() Interface.InstallError!void {
 pub const dependency = Interface.Dependency{
     .name = "email",
     .feature = .email,
-    .packages = &.{ "postfix" },
+    .packages = &.{"postfix"},
     .check = checkEmailDeps,
     .install = installEmailDeps,
 };

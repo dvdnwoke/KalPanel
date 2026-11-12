@@ -1,6 +1,5 @@
 const std = @import("std");
 const Interface = @import("interface.zig");
-const Feature = @import("../features.zig").Feature;
 
 fn checkDomainDeps() bool {
     // At least one of the core tools must be present
