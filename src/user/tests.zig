@@ -52,15 +52,18 @@ test "reseller can only create a normal user" {
 }
 
 test "ubuntu useradd creates a home under /home" {
-    var args: [7][]const u8 = undefined;
+    var args: [10][]const u8 = undefined;
     ubuntu.fillUseraddArgs("alice", "/home/alice", &args);
-    try std.testing.expectEqualStrings("useradd", args[0]);
+    try std.testing.expectEqualStrings("/usr/sbin/useradd", args[0]);
     try std.testing.expectEqualStrings("-m", args[1]);
-    try std.testing.expectEqualStrings("-d", args[2]);
-    try std.testing.expectEqualStrings("/home/alice", args[3]);
-    try std.testing.expectEqualStrings("-s", args[4]);
-    try std.testing.expectEqualStrings("/bin/bash", args[5]);
-    try std.testing.expectEqualStrings("alice", args[6]);
+    try std.testing.expectEqualStrings("-N", args[2]);
+    try std.testing.expectEqualStrings("-g", args[3]);
+    try std.testing.expectEqualStrings("users", args[4]);
+    try std.testing.expectEqualStrings("-d", args[5]);
+    try std.testing.expectEqualStrings("/home/alice", args[6]);
+    try std.testing.expectEqualStrings("-s", args[7]);
+    try std.testing.expectEqualStrings("/bin/bash", args[8]);
+    try std.testing.expectEqualStrings("alice", args[9]);
 }
 
 test "os-release parser accepts only ubuntu" {

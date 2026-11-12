@@ -332,7 +332,7 @@ test "activation reloads php 8.3, node, nginx, and outlook mail" {
     var rec = Rec{};
     try activate_mod.apply(&db, io, .{ .root = root }, rec.runner());
     const log = rec.text();
-    try std.testing.expect(std.mem.indexOf(u8, log, "systemctl enable --now php8.3-fpm") != null);
+    try std.testing.expect(std.mem.indexOf(u8, log, "chown -R admin: ") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "nginx -t") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "systemctl reload nginx") != null);
     try std.testing.expect(std.mem.indexOf(u8, log, "systemctl enable --now kalpanel-app.example.com.service") != null);
@@ -350,14 +350,14 @@ test "activation reloads php 8.3, node, nginx, and outlook mail" {
     try std.testing.expect(std.mem.indexOf(u8, master, "smtpd_sasl_auth_enable=yes") != null);
 }
 
-test "version is 0.0.6" {
-    try std.testing.expectEqualStrings("0.0.6", version.string);
+test "version is 0.0.7" {
+    try std.testing.expectEqualStrings("0.0.7", version.string);
     var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     var buf: [64]u8 = undefined;
     var out = cli.Out{ .buf = &buf };
     try cli.run(std.testing.allocator, threaded.io(), &.{ "kalpanel", "version" }, &out);
-    try std.testing.expectEqualStrings("kalpanel 0.0.6\n", out.slice());
+    try std.testing.expectEqualStrings("kalpanel 0.0.7\n", out.slice());
 }
 
 test "lets encrypt serves the site on port 443" {

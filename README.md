@@ -1,4 +1,4 @@
-# KalPanel 0.0.6
+# KalPanel 0.0.7
 
 Light hosting control panel for Ubuntu, written in Zig. It creates users, domains, and mailboxes, serves one PHP site and one Node site through nginx, and turns a domain on with a Let's Encrypt certificate.
 
@@ -8,20 +8,20 @@ This release is a command-line tool. There is no web interface yet.
 
 Download the static **x86_64 Linux** binary (Ubuntu, Arch, and other glibc or musl systems):
 
-[kalpanel-0.0.6-x86_64-linux.tar.gz](https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.6/kalpanel-0.0.6-x86_64-linux.tar.gz)
+[kalpanel-0.0.7-x86_64-linux.tar.gz](https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.7/kalpanel-0.0.7-x86_64-linux.tar.gz)
 
 ```bash
-curl -L -o kalpanel-0.0.6-x86_64-linux.tar.gz \
-  https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.6/kalpanel-0.0.6-x86_64-linux.tar.gz
-tar -xzf kalpanel-0.0.6-x86_64-linux.tar.gz
+curl -L -o kalpanel-0.0.7-x86_64-linux.tar.gz \
+  https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.7/kalpanel-0.0.7-x86_64-linux.tar.gz
+tar -xzf kalpanel-0.0.7-x86_64-linux.tar.gz
 sudo install -m 755 kalpanel /usr/local/bin/kalpanel
 kalpanel version
 ```
 
-`kalpanel version` prints `kalpanel 0.0.6`.
+`kalpanel version` prints `kalpanel 0.0.7`.
 
 ```text
-d2b7d109b7515c98cbbd9855043609eaa9a9892ec1bea1e187f0dd9064aaa314  kalpanel-0.0.6-x86_64-linux.tar.gz
+04ee3b1a697dba6acb981224001c862de95e6259e205e9ee27a1eeae4955240c  kalpanel-0.0.7-x86_64-linux.tar.gz
 ```
 
 Build from source instead if you have Zig 0.17 or newer:
@@ -120,6 +120,8 @@ Suspend only hides a site. Delete removes it.
 `email delete` removes one mailbox. `domain delete` removes that site, its public folder, its certificate files, and its mailboxes. `user delete` does that for every domain the user owns, then removes the account and the home directory. Another user's site is not touched. `uninstall` still only removes packages this program installed.
 
 Deleting a user does not ask which reseller created them. The database never stored that, and the other commands are already operator commands: whoever can run `kalpanel` can suspend. List and delete follow that, instead of inventing an owner column for this step. There is no confirmation prompt. The tests delete one side and check the other side is still there.
+
+The panel account is an ordinary Unix user in the `users` group. It is not added to Ubuntu's `admin` or `sudo` group. `admin` is a valid account name.
 
 Roles are `admin`, `reseller`, and `user`. An admin can create anyone. A reseller can create only a normal user (`--actor NAME`). A normal user cannot create accounts.
 

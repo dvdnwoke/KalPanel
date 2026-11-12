@@ -67,7 +67,7 @@ fn activateHttp(db: *Db, io: std.Io, layout: layout_mod.Layout, runner: Runner) 
             any_http = true;
             if (is_php) any_php = true;
             var owner_buf: [80]u8 = undefined;
-            const owner = try std.fmt.bufPrint(&owner_buf, "{s}:{s}", .{ row.user_name.data, row.user_name.data });
+            const owner = try std.fmt.bufPrint(&owner_buf, "{s}:", .{row.user_name.data});
             var public_buf: [512]u8 = undefined;
             if (row.public_path.data.len > public_buf.len) return error.PathTooLong;
             @memcpy(public_buf[0..row.public_path.data.len], row.public_path.data);

@@ -5,19 +5,27 @@ pub const Host = struct {
     pub fn home(self: Host, io: std.Io, name: []const u8, buf: []u8) ![]const u8 {
         _ = self;
         if (!try osIsUbuntu(io)) return error.UnsupportedSystem;
+        if (try unixUserExists(io, name)) return error.SystemUserExists;
 
         const home_path = try std.fmt.bufPrint(buf, "/home/{s}", .{name});
-        var args: [7][]const u8 = undefined;
+        var args: [10][]const u8 = undefined;
         fillUseraddArgs(name, home_path, &args);
 
         const allocator = std.heap.page_allocator;
         const result = std.process.run(allocator, io, .{
             .argv = &args,
-        }) catch return error.AccountCreateFailed;
+        }) catch |err| {
+            std.debug.print("useradd failed to start: {s}\n", .{@errorName(err)});
+            return error.AccountCreateFailed;
+        };
         defer allocator.free(result.stdout);
         defer allocator.free(result.stderr);
 
-        if (!result.term.success()) return error.AccountCreateFailed;
+        if (!result.term.success()) {
+            if (result.stderr.len > 0) std.debug.print("{s}", .{result.stderr});
+            if (result.stderr.len == 0 or result.stderr[result.stderr.len - 1] != '\n') std.debug.print("\n", .{});
+            return error.AccountCreateFailed;
+        }
         return home_path;
     }
 
@@ -25,15 +33,28 @@ pub const Host = struct {
         _ = self;
         const allocator = std.heap.page_allocator;
         const result = std.process.run(allocator, io, .{
-            .argv = &.{ "userdel", "-r", name },
+            .argv = &.{ "/usr/sbin/userdel", "-r", name },
         }) catch return;
         defer allocator.free(result.stdout);
         defer allocator.free(result.stderr);
     }
 };
 
-pub fn fillUseraddArgs(name: []const u8, home_path: []const u8, out: *[7][]const u8) void {
-    out.* = .{ "useradd", "-m", "-d", home_path, "-s", "/bin/bash", name };
+/// A normal account in the `users` group. `-N` skips a private group, so the
+/// name `admin` does not collide with Ubuntu's existing `admin` group and
+/// does not land in that sudo group.
+pub fn fillUseraddArgs(name: []const u8, home_path: []const u8, out: *[10][]const u8) void {
+    out.* = .{ "/usr/sbin/useradd", "-m", "-N", "-g", "users", "-d", home_path, "-s", "/bin/bash", name };
+}
+
+fn unixUserExists(io: std.Io, name: []const u8) !bool {
+    const allocator = std.heap.page_allocator;
+    const result = std.process.run(allocator, io, .{
+        .argv = &.{ "/usr/bin/id", "-u", name },
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    return result.term.success();
 }
 
 pub fn idFromOsRelease(contents: []const u8) ?[]const u8 {
