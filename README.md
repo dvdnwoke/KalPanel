@@ -31,12 +31,14 @@ Everything about KalPanel is guided by our name: fast, easy, and light. No bloat
 ├── build.zig.zon
 ├── README.md
 └── src/
-    ├── main.zig          # CLI entry point
-    ├── user/             # User management & accounts (roles: Admin, Reseller, User)
-    ├── domain/           # Domain & subdomain management
-    ├── runtime/          # PHP, Node.js and other runtime support
-    ├── email/            # Email hosting (Postfix/Exim integration)
-    └── dependencies/     # External program dependencies & installers
+    ├── main.zig
+    ├── features.zig
+    ├── database/         # SQLite (nDimensional/zig-sqlite)
+    ├── dependencies/     # External program deps (feature-gated)
+    ├── user/
+    ├── domain/
+    ├── runtime/
+    └── email/
 ```
 
 ## Building
@@ -44,13 +46,19 @@ Everything about KalPanel is guided by our name: fast, easy, and light. No bloat
 Requires Zig 0.17 or later.
 
 ```bash
+# First time: add SQLite dependency
+zig fetch --save=sqlite https://github.com/nDimensional/zig-sqlite/archive/refs/tags/v0.5.0-3530400.tar.gz
+
 zig build
 zig build run
+zig build test
 ```
 
 ## Status
 
-Bootstrap only — no implementation yet. Core modules and CLI are scaffolded.
+- Dependencies module: implemented (feature-gated install)
+- Database module: folder + stub added, ready for zig-sqlite
+- Other modules: placeholders
 
 ## License
 
