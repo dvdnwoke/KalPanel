@@ -9,7 +9,8 @@ pub const Dependency = struct {
     install: *const fn () !void,
 };
 
-/// Helper: returns true if the command exists in PATH
+/// Returns true if the command exists in PATH.
+/// Safe for tests: returns false on any failure.
 pub fn commandExists(cmd: []const u8) bool {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -22,5 +23,9 @@ pub fn commandExists(cmd: []const u8) bool {
 
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
-    return result.term.Exited == 0;
+
+    return switch (result.term) {
+        .Exited => |code| code == 0,
+        else => false,
+    };
 }
