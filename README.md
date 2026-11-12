@@ -1,4 +1,4 @@
-# KalPanel 0.0.5
+# KalPanel 0.0.6
 
 Light hosting control panel for Ubuntu, written in Zig. It creates users, domains, and mailboxes, serves one PHP site and one Node site through nginx, and turns a domain on with a Let's Encrypt certificate.
 
@@ -18,7 +18,7 @@ sudo install -m 755 kalpanel /usr/local/bin/kalpanel
 kalpanel version
 ```
 
-`kalpanel version` prints `kalpanel 0.0.5`.
+`kalpanel version` prints `kalpanel 0.0.6`. The download above is the 0.0.5 binary. Build from source for list and delete.
 
 Build from source instead if you have Zig 0.17 or newer:
 
@@ -96,13 +96,26 @@ The mail certificate is the first active Let's Encrypt domain, in alphabetical o
 
 ```bash
 kalpanel version
+kalpanel --db /var/lib/kalpanel.sqlite user list
 kalpanel --db /var/lib/kalpanel.sqlite user suspend admin
+kalpanel --db /var/lib/kalpanel.sqlite user delete bob
+kalpanel --db /var/lib/kalpanel.sqlite domain list
+kalpanel --db /var/lib/kalpanel.sqlite domain list admin
 kalpanel --db /var/lib/kalpanel.sqlite domain suspend example.com
+kalpanel --db /var/lib/kalpanel.sqlite domain delete example.com
+kalpanel --db /var/lib/kalpanel.sqlite email list example.com
 kalpanel --db /var/lib/kalpanel.sqlite email suspend alice@example.com
+kalpanel --db /var/lib/kalpanel.sqlite email delete alice@example.com
 kalpanel --db /var/lib/kalpanel.sqlite uninstall
 ```
 
-Suspend removes that user, site, or mailbox from nginx, the Node unit, and the mail maps. `uninstall` does not delete users, sites, or the database.
+Suspend only hides a site. Delete removes it.
+
+`user list` prints every account. `domain list` prints every domain, and `domain list USER` prints only that user's. `email list DOMAIN` prints the mailboxes on that domain. None of these print a password.
+
+`email delete` removes one mailbox. `domain delete` removes that site, its public folder, its certificate files, and its mailboxes. `user delete` does that for every domain the user owns, then removes the account and the home directory. Another user's site is not touched. `uninstall` still only removes packages this program installed.
+
+Deleting a user does not ask which reseller created them. The database never stored that, and the other commands are already operator commands: whoever can run `kalpanel` can suspend. List and delete follow that, instead of inventing an owner column for this step. There is no confirmation prompt. The tests delete one side and check the other side is still there.
 
 Roles are `admin`, `reseller`, and `user`. An admin can create anyone. A reseller can create only a normal user (`--actor NAME`). A normal user cannot create accounts.
 
@@ -114,4 +127,4 @@ sudo kalpanel --db /var/lib/kalpanel.sqlite user create alice --role user --acto
 
 `zig build test` is part of the project. GitHub runs that same command on every push.
 
-It covers hosting (PHP, Node, mail, suspend, the package ledger, Let's Encrypt) and the property tests in `src/fuzz.zig`. Those throw random account names, domain names, and mailbox addresses at the validators, and check that every combination of features installs only that feature's packages. A name the validator accepts has to match the grammar. A name like `..` or `-bad.com` must be rejected, because those strings are written into filesystem paths and nginx config.
+It covers hosting (PHP, Node, mail, suspend, list, delete, the package ledger, Let's Encrypt) and the property tests in `src/fuzz.zig`. Those throw random account names, domain names, and mailbox addresses at the validators, and check that every combination of features installs only that feature's packages. A name the validator accepts has to match the grammar. A name like `..` or `-bad.com` must be rejected, because those strings are written into filesystem paths and nginx config.

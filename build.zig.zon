@@ -1,7 +1,7 @@
 .{
     .name = .kalpanel,
     .fingerprint = 0xdedbcfe634e1a36a,
-    .version = "0.0.5",
+    .version = "0.0.6",
     .dependencies = .{
         .sqlite = .{
             .url = "https://github.com/nDimensional/zig-sqlite/archive/refs/tags/v0.5.0-3530400.tar.gz",

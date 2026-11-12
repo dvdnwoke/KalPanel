@@ -293,3 +293,67 @@ fn hex(raw: []const u8, out: []u8) []const u8 {
     }
     return out[0 .. raw.len * 2];
 }
+
+pub fn list(db: *Db, domain_name: []const u8, out: anytype) !void {
+    if (!try domainExists(db, domain_name)) return error.DomainNotFound;
+    const query = try db.raw.prepare(
+        struct { domain: sqlite.Text },
+        struct { address: sqlite.Text, suspended: i64 },
+        "SELECT e.address AS address, e.suspended AS suspended FROM emails e " ++
+            "JOIN domains d ON d.id = e.domain_id WHERE d.name = :domain ORDER BY e.address",
+    );
+    defer query.finalize();
+    try query.bind(.{ .domain = sqlite.text(domain_name) });
+    defer query.reset();
+    var n: usize = 0;
+    while (try query.step()) |row| {
+        try out.print("email {s} suspended {d}\n", .{ row.address.data, row.suspended });
+        n += 1;
+    }
+    if (n == 0) try out.print("no emails\n", .{});
+}
+
+pub fn remove(db: *Db, io: std.Io, layout: layout_mod.Layout, address: []const u8) !void {
+    const Mail = struct {
+        local_len: usize,
+        domain_len: usize,
+        local: [64]u8 = undefined,
+        domain: [253]u8 = undefined,
+    };
+    const mail = blk: {
+        const query = try db.raw.prepare(
+            struct { address: sqlite.Text },
+            struct { local_part: sqlite.Text, domain: sqlite.Text },
+            "SELECT e.local_part AS local_part, d.name AS domain FROM emails e " ++
+                "JOIN domains d ON d.id = e.domain_id WHERE e.address = :address",
+        );
+        defer query.finalize();
+        try query.bind(.{ .address = sqlite.text(address) });
+        defer query.reset();
+        const row = (try query.step()) orelse return error.EmailNotFound;
+        if (row.local_part.data.len > 64 or row.domain.data.len > 253) return error.InvalidAddress;
+        var mail = Mail{ .local_len = row.local_part.data.len, .domain_len = row.domain.data.len };
+        @memcpy(mail.local[0..row.local_part.data.len], row.local_part.data);
+        @memcpy(mail.domain[0..row.domain.data.len], row.domain.data);
+        break :blk mail;
+    };
+    try db.raw.exec("DELETE FROM emails WHERE address = :address", .{ .address = sqlite.text(address) });
+    var rel: [400]u8 = undefined;
+    const rel_s = try std.fmt.bufPrint(&rel, "var/mail/kalpanel/{s}/{s}", .{ mail.domain[0..mail.domain_len], mail.local[0..mail.local_len] });
+    var full: [512]u8 = undefined;
+    const path = try layout.resolve(&full, rel_s);
+    std.Io.Dir.cwd().deleteTree(io, path) catch {};
+    try reload(db, io, layout);
+}
+
+fn domainExists(db: *Db, name: []const u8) !bool {
+    const query = try db.raw.prepare(
+        struct { name: sqlite.Text },
+        struct { id: i64 },
+        "SELECT id FROM domains WHERE name = :name",
+    );
+    defer query.finalize();
+    try query.bind(.{ .name = sqlite.text(name) });
+    defer query.reset();
+    return (try query.step()) != null;
+}

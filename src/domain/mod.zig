@@ -236,3 +236,156 @@ fn nextNodePort(db: *Db) !i64 {
     const row = (try query.step()) orelse return error.Database;
     return row.n + 1;
 }
+
+/// `user_name` null lists every domain. A missing user is `error.UserNotFound`.
+pub fn list(db: *Db, user_name: ?[]const u8, out: anytype) !void {
+    var filter: ?i64 = null;
+    if (user_name) |name| {
+        var home_buf: [512]u8 = undefined;
+        const account = (try users.lookup(db, name, &home_buf)) orelse return error.UserNotFound;
+        filter = account.id;
+    }
+    const query = try db.raw.prepare(
+        struct {},
+        struct {
+            name: sqlite.Text,
+            user_name: sqlite.Text,
+            runtime: sqlite.Text,
+            port: i64,
+            suspended: i64,
+            tls: i64,
+            user_id: i64,
+        },
+        "SELECT d.name AS name, u.name AS user_name, d.runtime AS runtime, d.port AS port, d.suspended AS suspended, d.tls AS tls, d.user_id AS user_id " ++
+            "FROM domains d JOIN users u ON u.id = d.user_id ORDER BY d.name",
+    );
+    defer query.finalize();
+    try query.bind(.{});
+    defer query.reset();
+    var n: usize = 0;
+    while (try query.step()) |row| {
+        if (filter) |id| if (row.user_id != id) continue;
+        try out.print("domain {s} user {s} runtime {s} port {d} suspended {d} tls {d}\n", .{
+            row.name.data,
+            row.user_name.data,
+            row.runtime.data,
+            row.port,
+            row.suspended,
+            row.tls,
+        });
+        n += 1;
+    }
+    if (n == 0) try out.print("no domains\n", .{});
+}
+
+/// Deletes the site, its mailboxes, and the public folder. Other users are left alone.
+pub fn remove(db: *Db, io: std.Io, layout: layout_mod.Layout, name: []const u8) !void {
+    const found = (try loadOwned(db, name)) orelse return error.DomainNotFound;
+    try removeMailboxes(db, io, layout, found.id, name);
+    try db.raw.exec("DELETE FROM emails WHERE domain_id = :id", .{ .id = found.id });
+    try db.raw.exec("DELETE FROM domains WHERE id = :id", .{ .id = found.id });
+    removeSiteFiles(io, layout, name);
+    const tree = domainTree(found.public_path[0..found.public_len]);
+    std.Io.Dir.cwd().deleteTree(io, tree) catch {};
+    removeCertFiles(io, layout, name);
+}
+
+/// Deletes every domain owned by `user_name`. The account row is left in place.
+pub fn removeAllForUser(db: *Db, io: std.Io, layout: layout_mod.Layout, user_name: []const u8) !void {
+    var home_buf: [512]u8 = undefined;
+    const account = (try users.lookup(db, user_name, &home_buf)) orelse return error.UserNotFound;
+    var names: [64][253]u8 = undefined;
+    var lens: [64]usize = undefined;
+    var n: usize = 0;
+    {
+        const query = try db.raw.prepare(
+            struct { user_id: i64 },
+            struct { name: sqlite.Text },
+            "SELECT name FROM domains WHERE user_id = :user_id ORDER BY name",
+        );
+        defer query.finalize();
+        try query.bind(.{ .user_id = account.id });
+        defer query.reset();
+        while (try query.step()) |row| {
+            if (n >= names.len) return error.TooManyDomains;
+            if (row.name.data.len > names[n].len) return error.InvalidDomain;
+            @memcpy(names[n][0..row.name.data.len], row.name.data);
+            lens[n] = row.name.data.len;
+            n += 1;
+        }
+    }
+    for (names[0..n], lens[0..n]) |raw, len| try remove(db, io, layout, raw[0..len]);
+}
+
+const Owned = struct {
+    id: i64,
+    public_len: usize,
+    public_path: [512]u8 = undefined,
+};
+
+fn loadOwned(db: *Db, name: []const u8) !?Owned {
+    const query = try db.raw.prepare(
+        struct { name: sqlite.Text },
+        struct { id: i64, public_path: sqlite.Text },
+        "SELECT id, public_path FROM domains WHERE name = :name",
+    );
+    defer query.finalize();
+    try query.bind(.{ .name = sqlite.text(name) });
+    defer query.reset();
+    const row = (try query.step()) orelse return null;
+    if (row.public_path.data.len > 512) return error.PathTooLong;
+    var out = Owned{ .id = row.id, .public_len = row.public_path.data.len };
+    @memcpy(out.public_path[0..row.public_path.data.len], row.public_path.data);
+    return out;
+}
+
+fn removeMailboxes(db: *Db, io: std.Io, layout: layout_mod.Layout, domain_id: i64, domain_name: []const u8) !void {
+    const query = try db.raw.prepare(
+        struct { domain_id: i64 },
+        struct { local_part: sqlite.Text },
+        "SELECT local_part FROM emails WHERE domain_id = :domain_id",
+    );
+    defer query.finalize();
+    try query.bind(.{ .domain_id = domain_id });
+    defer query.reset();
+    while (try query.step()) |row| {
+        var local_buf: [64]u8 = undefined;
+        if (row.local_part.data.len > local_buf.len) return error.InvalidAddress;
+        @memcpy(local_buf[0..row.local_part.data.len], row.local_part.data);
+        var rel: [400]u8 = undefined;
+        const rel_s = try std.fmt.bufPrint(&rel, "var/mail/kalpanel/{s}/{s}", .{ domain_name, local_buf[0..row.local_part.data.len] });
+        var full: [512]u8 = undefined;
+        const path = try layout.resolve(&full, rel_s);
+        std.Io.Dir.cwd().deleteTree(io, path) catch {};
+    }
+}
+
+fn removeSiteFiles(io: std.Io, layout: layout_mod.Layout, name: []const u8) void {
+    removeRendered(io, layout, "etc/nginx/sites-available/{s}.conf", name, false);
+    removeRendered(io, layout, "etc/nginx/sites-enabled/{s}.conf", name, false);
+    removeRendered(io, layout, "etc/systemd/system/kalpanel-{s}.service", name, false);
+}
+
+fn removeCertFiles(io: std.Io, layout: layout_mod.Layout, name: []const u8) void {
+    removeRendered(io, layout, "etc/letsencrypt/live/{s}", name, true);
+    removeRendered(io, layout, "etc/letsencrypt/archive/{s}", name, true);
+    removeRendered(io, layout, "etc/letsencrypt/renewal/{s}.conf", name, false);
+}
+
+fn removeRendered(io: std.Io, layout: layout_mod.Layout, comptime pattern: []const u8, name: []const u8, tree: bool) void {
+    var rel: [400]u8 = undefined;
+    const rel_s = std.fmt.bufPrint(&rel, pattern, .{name}) catch return;
+    var full: [512]u8 = undefined;
+    const path = layout.resolve(&full, rel_s) catch return;
+    if (tree) {
+        std.Io.Dir.cwd().deleteTree(io, path) catch {};
+    } else {
+        layout_mod.removeFile(io, path);
+    }
+}
+
+fn domainTree(public_path: []const u8) []const u8 {
+    const suffix = "/public";
+    if (std.mem.endsWith(u8, public_path, suffix)) return public_path[0 .. public_path.len - suffix.len];
+    return public_path;
+}

@@ -350,14 +350,14 @@ test "activation reloads php 8.3, node, nginx, and outlook mail" {
     try std.testing.expect(std.mem.indexOf(u8, master, "smtpd_sasl_auth_enable=yes") != null);
 }
 
-test "version is 0.0.5" {
-    try std.testing.expectEqualStrings("0.0.5", version.string);
+test "version is 0.0.6" {
+    try std.testing.expectEqualStrings("0.0.6", version.string);
     var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
     defer threaded.deinit();
     var buf: [64]u8 = undefined;
     var out = cli.Out{ .buf = &buf };
     try cli.run(std.testing.allocator, threaded.io(), &.{ "kalpanel", "version" }, &out);
-    try std.testing.expectEqualStrings("kalpanel 0.0.5\n", out.slice());
+    try std.testing.expectEqualStrings("kalpanel 0.0.6\n", out.slice());
 }
 
 test "lets encrypt serves the site on port 443" {
@@ -464,4 +464,69 @@ test "rejects unsafe names, missing features, and duplicate domains" {
 
     _ = try exec(io, root, db_path, &.{ "user", "suspend", "admin" }, null, null, &out_buf);
     try std.testing.expectError(error.UserSuspended, exec(io, root, db_path, &.{ "user", "create", "later", "--role", "user", "--actor", "admin" }, null, null, &out_buf));
+}
+
+test "list and delete keep the other user domain and mailbox" {
+    var threaded: std.Io.Threaded = .init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const root = "/tmp/kalpanel-list-test";
+    std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, root);
+    defer std.Io.Dir.cwd().deleteTree(io, root) catch {};
+    const db_path = root ++ "/kalpanel.sqlite";
+    var out_buf: [4096]u8 = undefined;
+
+    _ = try exec(io, root, db_path, &.{ "user", "create", "admin", "--role", "admin", "--domain", "--email", "--php" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "user", "create", "bob", "--role", "user", "--actor", "admin", "--domain", "--email", "--node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "admin", "example.com", "--runtime", "php" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "domain", "create", "bob", "other.com", "--runtime", "node" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "email", "create", "a@example.com" }, null, null, &out_buf);
+    _ = try exec(io, root, db_path, &.{ "email", "create", "c@other.com" }, null, null, &out_buf);
+
+    const users_out = try exec(io, root, db_path, &.{ "user", "list" }, null, null, &out_buf);
+    try std.testing.expect(std.mem.indexOf(u8, users_out, "user admin role admin suspended 0 features domain,email,php\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, users_out, "user bob role user suspended 0 features domain,email,node\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, users_out, "password") == null);
+
+    const admin_domains = try exec(io, root, db_path, &.{ "domain", "list", "admin" }, null, null, &out_buf);
+    try std.testing.expect(std.mem.indexOf(u8, admin_domains, "domain example.com user admin runtime php port 0 suspended 0 tls 0\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, admin_domains, "other.com") == null);
+
+    const all_domains = try exec(io, root, db_path, &.{ "domain", "list" }, null, null, &out_buf);
+    try std.testing.expect(std.mem.indexOf(u8, all_domains, "example.com") != null);
+    try std.testing.expect(std.mem.indexOf(u8, all_domains, "domain other.com user bob runtime node port 20000 ") != null);
+
+    const example_mail = try exec(io, root, db_path, &.{ "email", "list", "example.com" }, null, null, &out_buf);
+    try std.testing.expect(std.mem.indexOf(u8, example_mail, "email a@example.com suspended 0\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, example_mail, "c@other.com") == null);
+
+    _ = try exec(io, root, db_path, &.{ "email", "delete", "a@example.com" }, null, null, &out_buf);
+    const after_mail = try exec(io, root, db_path, &.{ "email", "list", "example.com" }, null, null, &out_buf);
+    try std.testing.expectEqualStrings("no emails\n", after_mail);
+    var pass_buf: [512]u8 = undefined;
+    const passwd = try layout_mod.readFile(io, root ++ "/etc/dovecot/kalpanel.passwd", &pass_buf);
+    try std.testing.expect(std.mem.indexOf(u8, passwd, "a@example.com") == null);
+    try std.testing.expect(std.mem.indexOf(u8, passwd, "c@other.com") != null);
+    try std.testing.expectError(error.EmailNotFound, exec(io, root, db_path, &.{ "email", "delete", "a@example.com" }, null, null, &out_buf));
+
+    _ = try exec(io, root, db_path, &.{ "domain", "delete", "example.com" }, null, null, &out_buf);
+    try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/example.com.conf", &out_buf));
+    try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/etc/nginx/sites-available/example.com.conf", &out_buf));
+    try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/home/admin/domains/example.com/public/index.php", &out_buf));
+    try std.testing.expectError(error.DomainNotFound, exec(io, root, db_path, &.{ "email", "list", "example.com" }, null, null, &out_buf));
+    _ = try layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/other.com.conf", &out_buf);
+    _ = try layout_mod.readFile(io, root ++ "/etc/systemd/system/kalpanel-other.com.service", &out_buf);
+
+    _ = try exec(io, root, db_path, &.{ "user", "delete", "bob" }, null, null, &out_buf);
+    const left = try exec(io, root, db_path, &.{ "user", "list" }, null, null, &out_buf);
+    try std.testing.expect(std.mem.indexOf(u8, left, "user admin ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, left, "user bob ") == null);
+    try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/etc/nginx/sites-enabled/other.com.conf", &out_buf));
+    try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/etc/systemd/system/kalpanel-other.com.service", &out_buf));
+    try std.testing.expectError(error.FileNotFound, layout_mod.readFile(io, root ++ "/home/bob/.kalpanel/features", &out_buf));
+    const passwd_after = try layout_mod.readFile(io, root ++ "/etc/dovecot/kalpanel.passwd", &pass_buf);
+    try std.testing.expect(std.mem.indexOf(u8, passwd_after, "c@other.com") == null);
+    try std.testing.expectError(error.UserNotFound, exec(io, root, db_path, &.{ "user", "delete", "bob" }, null, null, &out_buf));
+    try std.testing.expectError(error.UserNotFound, exec(io, root, db_path, &.{ "domain", "list", "bob" }, null, null, &out_buf));
 }

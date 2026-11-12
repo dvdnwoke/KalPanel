@@ -11,7 +11,7 @@ pub fn main(init: std.process.Init) !void {
         n += 1;
     }
 
-    var out_buf: [4096]u8 = undefined;
+    var out_buf: [16384]u8 = undefined;
     var out = cli.Out{ .buf = &out_buf };
     cli.run(init.gpa, init.io, args[0..n], &out) catch |err| {
         if (out.len > 0) std.debug.print("{s}", .{out.slice()});

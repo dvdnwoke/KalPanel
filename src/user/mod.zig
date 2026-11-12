@@ -251,3 +251,92 @@ pub fn setSuspended(db: *Db, name: []const u8, suspended: bool) !void {
         .{ account.id, flag },
     );
 }
+
+const ListedUser = struct {
+    id: i64,
+    suspended: i64,
+    name_len: usize,
+    role_len: usize,
+    name: [32]u8 = undefined,
+    role: [16]u8 = undefined,
+};
+
+/// One line per account, ordered by name. Passwords are never printed.
+pub fn list(db: *Db, out: anytype) !void {
+    var rows: [128]ListedUser = undefined;
+    const n = try collectUsers(db, &rows);
+    if (n == 0) {
+        try out.print("no users\n", .{});
+        return;
+    }
+    for (rows[0..n]) |row| {
+        const features = try featuresFor(db, row.id);
+        var feat_buf: [40]u8 = undefined;
+        const feats = formatFeatures(features, &feat_buf);
+        try out.print("user {s} role {s} suspended {d} features {s}\n", .{
+            row.name[0..row.name_len],
+            row.role[0..row.role_len],
+            row.suspended,
+            feats,
+        });
+    }
+}
+
+/// Removes the account row and the home directory. Domains must already be gone.
+pub fn remove(db: *Db, io: std.Io, host: anytype, name: []const u8) !void {
+    var home_buf: [512]u8 = undefined;
+    if ((try lookup(db, name, &home_buf)) == null) return error.UserNotFound;
+    try db.raw.exec("DELETE FROM users WHERE name = :name", .{ .name = sqlite.text(name) });
+    host.rollback(io, name);
+}
+
+fn collectUsers(db: *Db, rows: []ListedUser) !usize {
+    const query = try db.raw.prepare(
+        struct {},
+        struct { id: i64, name: sqlite.Text, role: sqlite.Text, suspended: i64 },
+        "SELECT u.id AS id, u.name AS name, u.role AS role, COALESCE(f.suspended, 0) AS suspended " ++
+            "FROM users u LEFT JOIN user_flags f ON f.user_id = u.id ORDER BY u.name",
+    );
+    defer query.finalize();
+    try query.bind(.{});
+    defer query.reset();
+    var n: usize = 0;
+    while (try query.step()) |row| {
+        if (n >= rows.len) return error.TooManyUsers;
+        if (row.name.data.len > rows[n].name.len or row.role.data.len > rows[n].role.len) return error.InvalidName;
+        rows[n] = .{
+            .id = row.id,
+            .suspended = row.suspended,
+            .name_len = row.name.data.len,
+            .role_len = row.role.data.len,
+        };
+        @memcpy(rows[n].name[0..row.name.data.len], row.name.data);
+        @memcpy(rows[n].role[0..row.role.data.len], row.role.data);
+        n += 1;
+    }
+    return n;
+}
+
+fn formatFeatures(features: FeatureSet, buf: []u8) []const u8 {
+    var len: usize = 0;
+    len = appendFeat(buf, len, features.domain, "domain");
+    len = appendFeat(buf, len, features.email, "email");
+    len = appendFeat(buf, len, features.php, "php");
+    len = appendFeat(buf, len, features.node, "node");
+    if (len == 0) {
+        @memcpy(buf[0..4], "none");
+        return buf[0..4];
+    }
+    return buf[0..len];
+}
+
+fn appendFeat(buf: []u8, len: usize, on: bool, name: []const u8) usize {
+    if (!on) return len;
+    var next = len;
+    if (next != 0) {
+        buf[next] = ',';
+        next += 1;
+    }
+    @memcpy(buf[next..][0..name.len], name);
+    return next + name.len;
+}

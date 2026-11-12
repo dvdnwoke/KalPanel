@@ -81,6 +81,27 @@ pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out
     if (std.mem.eql(u8, group, "user") and std.mem.eql(u8, action, "create")) {
         return userCreate(&db, io, layout, rest, out);
     }
+    if (std.mem.eql(u8, group, "user") and std.mem.eql(u8, action, "list")) {
+        const parsed = try parseFlags(rest);
+        if (parsed.pos_len != 0) return error.Usage;
+        try users.list(&db, out);
+        return;
+    }
+    if (std.mem.eql(u8, group, "user") and std.mem.eql(u8, action, "delete")) {
+        const parsed = try parseFlags(rest);
+        if (parsed.pos_len != 1) return error.Usage;
+        try domain_mod.removeAllForUser(&db, io, layout, parsed.pos[0]);
+        if (layout.root.len == 0) {
+            try users.remove(&db, io, ubuntu.Host{}, parsed.pos[0]);
+        } else {
+            try users.remove(&db, io, PrefixHost{ .root = layout.root }, parsed.pos[0]);
+        }
+        try domain_mod.reload(&db, io, layout);
+        try email_mod.reload(&db, io, layout);
+        try activateIfReady(&db, io, layout);
+        try out.print("deleted user {s}\n", .{parsed.pos[0]});
+        return;
+    }
     if (std.mem.eql(u8, group, "user") and std.mem.eql(u8, action, "suspend")) {
         const parsed = try parseFlags(rest);
         if (parsed.pos_len != 1) return error.Usage;
@@ -98,6 +119,22 @@ pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out
         try domain_mod.create(&db, io, layout, parsed.pos[0], parsed.pos[1], runtime);
         try activateIfReady(&db, io, layout);
         try out.print("created domain {s} runtime {s}\n", .{ parsed.pos[1], @tagName(runtime) });
+        return;
+    }
+    if (std.mem.eql(u8, group, "domain") and std.mem.eql(u8, action, "list")) {
+        const parsed = try parseFlags(rest);
+        if (parsed.pos_len > 1) return error.Usage;
+        const owner = if (parsed.pos_len == 1) parsed.pos[0] else null;
+        try domain_mod.list(&db, owner, out);
+        return;
+    }
+    if (std.mem.eql(u8, group, "domain") and std.mem.eql(u8, action, "delete")) {
+        const parsed = try parseFlags(rest);
+        if (parsed.pos_len != 1) return error.Usage;
+        try domain_mod.remove(&db, io, layout, parsed.pos[0]);
+        try email_mod.reload(&db, io, layout);
+        try activateIfReady(&db, io, layout);
+        try out.print("deleted domain {s}\n", .{parsed.pos[0]});
         return;
     }
     if (std.mem.eql(u8, group, "domain") and std.mem.eql(u8, action, "suspend")) {
@@ -132,6 +169,20 @@ pub fn runWith(gpa: std.mem.Allocator, io: std.Io, args: []const []const u8, out
         const password = try email_mod.create(&db, io, layout, parsed.pos[0], &password_buf);
         try activateIfReady(&db, io, layout);
         try out.print("created email {s}\npassword: {s}\n", .{ parsed.pos[0], password });
+        return;
+    }
+    if (std.mem.eql(u8, group, "email") and std.mem.eql(u8, action, "list")) {
+        const parsed = try parseFlags(rest);
+        if (parsed.pos_len != 1) return error.Usage;
+        try email_mod.list(&db, parsed.pos[0], out);
+        return;
+    }
+    if (std.mem.eql(u8, group, "email") and std.mem.eql(u8, action, "delete")) {
+        const parsed = try parseFlags(rest);
+        if (parsed.pos_len != 1) return error.Usage;
+        try email_mod.remove(&db, io, layout, parsed.pos[0]);
+        try activateIfReady(&db, io, layout);
+        try out.print("deleted email {s}\n", .{parsed.pos[0]});
         return;
     }
     if (std.mem.eql(u8, group, "email") and std.mem.eql(u8, action, "suspend")) {
@@ -259,20 +310,26 @@ fn activateIfReady(db: *Db, io: std.Io, layout: layout_mod.Layout) !void {
 
 fn usage(out: *Out) !void {
     try out.print(
-        \\kalpanel 0.0.5
+        \\kalpanel {s}
         \\kalpanel version
         \\kalpanel --db PATH [--root PATH] <command>
         \\  user create NAME --role admin|reseller|user [--actor NAME] [--domain] [--email] [--php] [--node]
+        \\  user list
         \\  user suspend NAME
+        \\  user delete NAME
         \\  domain create USER DOMAIN --runtime php|node
+        \\  domain list [USER]
         \\  domain suspend DOMAIN
+        \\  domain delete DOMAIN
         \\  domain tls DOMAIN EMAIL
         \\  domain renew
         \\  email create LOCAL@DOMAIN
+        \\  email list DOMAIN
         \\  email suspend LOCAL@DOMAIN
+        \\  email delete LOCAL@DOMAIN
         \\  setup
         \\  uninstall
         \\
-    , .{});
+    , .{version.string});
     return error.Usage;
 }
