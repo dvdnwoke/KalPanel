@@ -17,7 +17,8 @@ test "only used features produce dependencies" {
     const set = FeatureSet{ .domain = true, .email = false, .php = true, .node = false };
     var buf: [8]Interface.Dependency = undefined;
     const n = manager.filterRequired(set, &buf);
-    try std.testing.expect(n == 2);
+    try std.testing.expectEqual(@as(usize, 2), n);
+
     var found_domain = false;
     var found_php = false;
     for (buf[0..n]) |d| {
@@ -28,17 +29,16 @@ test "only used features produce dependencies" {
 }
 
 test "no users using feature means no dep" {
-    const set = FeatureSet{}; // all false
+    const set = FeatureSet{};
     var buf: [8]Interface.Dependency = undefined;
     const n = manager.filterRequired(set, &buf);
-    try std.testing.expect(n == 0);
+    try std.testing.expectEqual(@as(usize, 0), n);
 }
 
-// Basic "fuzzy" / randomized selection test
 test "randomized feature selection" {
     var prng = std.Random.DefaultPrng.init(42);
     const random = prng.random();
-    for (0..20) |_| {
+    for (0..50) |_| {
         var set = FeatureSet{};
         set.domain = random.boolean();
         set.email = random.boolean();
@@ -59,4 +59,9 @@ test "randomized feature selection" {
             try std.testing.expect(set.isEnabled(d.feature));
         }
     }
+}
+
+test "ensureDependencies does not fail when nothing is required" {
+    const set = FeatureSet{};
+    try manager.ensureDependencies(set);
 }

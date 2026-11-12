@@ -3,14 +3,14 @@ const Interface = @import("interface.zig");
 const Feature = @import("../features.zig").Feature;
 
 fn checkDomainDeps() bool {
-    // TODO: real check, e.g. nginx or bind present
-    // For now, always return true in tests via mock or assume available
-    return true;
+    // At least one of the core tools must be present
+    return Interface.commandExists("nginx") or Interface.commandExists("apache2");
 }
 
 fn installDomainDeps() !void {
-    // TODO: install nginx, certbot, etc.
-    std.log.info("Installing domain dependencies (nginx, etc.)", .{});
+    std.log.info("Domain deps missing. Install nginx (or apache2) and certbot on the host.", .{});
+    // Real install would call package manager here; for now we report clearly
+    return error.DependenciesNotInstalled;
 }
 
 pub const dependency = Interface.Dependency{

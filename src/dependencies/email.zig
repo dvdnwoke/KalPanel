@@ -3,12 +3,12 @@ const Interface = @import("interface.zig");
 const Feature = @import("../features.zig").Feature;
 
 fn checkEmailDeps() bool {
-    // TODO: check for postfix or exim
-    return true;
+    return Interface.commandExists("postfix") or Interface.commandExists("exim4");
 }
 
 fn installEmailDeps() !void {
-    std.log.info("Installing email dependencies (postfix/exim)", .{});
+    std.log.info("Email deps missing. Install postfix or exim on the host.", .{});
+    return error.DependenciesNotInstalled;
 }
 
 pub const dependency = Interface.Dependency{

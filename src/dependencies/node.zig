@@ -3,11 +3,12 @@ const Interface = @import("interface.zig");
 const Feature = @import("../features.zig").Feature;
 
 fn checkNodeDeps() bool {
-    return true;
+    return Interface.commandExists("node") or Interface.commandExists("nodejs");
 }
 
 fn installNodeDeps() !void {
-    std.log.info("Installing Node.js runtime dependencies", .{});
+    std.log.info("Node.js runtime missing. Install nodejs and npm on the host.", .{});
+    return error.DependenciesNotInstalled;
 }
 
 pub const dependency = Interface.Dependency{
