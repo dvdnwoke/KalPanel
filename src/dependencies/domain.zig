@@ -7,7 +7,7 @@ fn checkDomainDeps() bool {
     return Interface.commandExists("nginx") or Interface.commandExists("apache2");
 }
 
-fn installDomainDeps() !void {
+fn installDomainDeps() Interface.InstallError!void {
     std.log.info("Domain deps missing. Install nginx (or apache2) and certbot on the host.", .{});
     // Real install would call package manager here; for now we report clearly
     return error.DependenciesNotInstalled;

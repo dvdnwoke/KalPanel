@@ -6,7 +6,7 @@ fn checkNodeDeps() bool {
     return Interface.commandExists("node") or Interface.commandExists("nodejs");
 }
 
-fn installNodeDeps() !void {
+fn installNodeDeps() Interface.InstallError!void {
     std.log.info("Node.js runtime missing. Install nodejs and npm on the host.", .{});
     return error.DependenciesNotInstalled;
 }

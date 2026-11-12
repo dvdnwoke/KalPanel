@@ -6,7 +6,7 @@ fn checkPhpDeps() bool {
     return Interface.commandExists("php") or Interface.commandExists("php-fpm");
 }
 
-fn installPhpDeps() !void {
+fn installPhpDeps() Interface.InstallError!void {
     std.log.info("PHP runtime missing. Install php and php-fpm on the host.", .{});
     return error.DependenciesNotInstalled;
 }

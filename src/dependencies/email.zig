@@ -6,7 +6,7 @@ fn checkEmailDeps() bool {
     return Interface.commandExists("postfix") or Interface.commandExists("exim4");
 }
 
-fn installEmailDeps() !void {
+fn installEmailDeps() Interface.InstallError!void {
     std.log.info("Email deps missing. Install postfix or exim on the host.", .{});
     return error.DependenciesNotInstalled;
 }
