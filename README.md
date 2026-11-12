@@ -8,17 +8,21 @@ This release is a command-line tool. There is no web interface yet.
 
 Download the static **x86_64 Linux** binary (Ubuntu, Arch, and other glibc or musl systems):
 
-[kalpanel-0.0.5-x86_64-linux.tar.gz](https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.5/kalpanel-0.0.5-x86_64-linux.tar.gz)
+[kalpanel-0.0.6-x86_64-linux.tar.gz](https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.6/kalpanel-0.0.6-x86_64-linux.tar.gz)
 
 ```bash
-curl -L -o kalpanel-0.0.5-x86_64-linux.tar.gz \
-  https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.5/kalpanel-0.0.5-x86_64-linux.tar.gz
-tar -xzf kalpanel-0.0.5-x86_64-linux.tar.gz
+curl -L -o kalpanel-0.0.6-x86_64-linux.tar.gz \
+  https://github.com/dvdnwoke/KalPanel/releases/download/v0.0.6/kalpanel-0.0.6-x86_64-linux.tar.gz
+tar -xzf kalpanel-0.0.6-x86_64-linux.tar.gz
 sudo install -m 755 kalpanel /usr/local/bin/kalpanel
 kalpanel version
 ```
 
-`kalpanel version` prints `kalpanel 0.0.6`. The download above is the 0.0.5 binary. Build from source for list and delete.
+`kalpanel version` prints `kalpanel 0.0.6`.
+
+```text
+d2b7d109b7515c98cbbd9855043609eaa9a9892ec1bea1e187f0dd9064aaa314  kalpanel-0.0.6-x86_64-linux.tar.gz
+```
 
 Build from source instead if you have Zig 0.17 or newer:
 
